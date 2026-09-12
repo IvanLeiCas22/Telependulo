@@ -1,0 +1,47 @@
+#ifndef HTTPSERVER_H
+#define HTTPSERVER_H
+
+#include <functional>                                   // Permite guardar una función que reciba const HttpRequest& y devuelva HttpResponse
+#include <unordered_map>                                // Para la relación ruta web -> función que la atiende
+
+#include <string>                                       // Uso de string
+#include <cstddef>                                      // Para función size
+
+struct HttpRequest
+{
+    std::string method;
+    std::string path;
+};
+
+struct HttpResponse
+{
+    int statusCode = 200;
+    std::string contentType = "text/plain; charset=utf-8";
+    std::string body;
+
+    static HttpResponse html(std::string body, int statusCode = 200);
+    static HttpResponse text(std::string body, int statusCode = 200);
+};
+
+using HttpHandler = std::function<HttpResponse(const HttpRequest&)>;
+
+class HttpServer
+{
+public:
+    explicit HttpServer(int port = 8080);
+
+    void get(const std::string& path, HttpHandler handler);                       //Registrar una ruta GET y decir qué callback debe atenderla
+    bool run();
+
+private:
+    bool handleClient(int clientSocket);
+    bool receiveRequest(int clientSocket, HttpRequest& request);
+    bool sendResponse(int clientSocket, const HttpResponse& response);
+    bool sendAll(int socket, const char* data, std::size_t size);
+    HttpResponse route(const HttpRequest& request) const;
+
+    int port_;                                                                    //Instancia de la clase, conectada a port
+    std::unordered_map<std::string, HttpHandler> getRoutes_;
+};
+
+#endif // HTTPSERVER_H
