@@ -10,6 +10,8 @@ add_executable(Telependulo
     main.cpp
     server/httpserver.cpp
     server/httpserver.h
+    web/pages.cpp
+    web/pages.h
 )
 
 include(GNUInstallDirs)
