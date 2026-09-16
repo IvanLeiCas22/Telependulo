@@ -3,6 +3,7 @@
 #include <cerrno>                                       // Para indicadores de fallo del sistema
 #include <iostream>                                     // Para dar salidas normales o de errores
 #include <sstream>                                      // Para separar la primera linea de una petición http
+#include <thread>                                       // Para atender cada cliente en un hilo independiente
 #include <utility>                                      // Para move que copia algo de un lugar a otro sin conservar el original
 
 // Headers del sistema linux
@@ -44,6 +45,11 @@ HttpServer::HttpServer(int port) : port_(port)
 void HttpServer::get(const std::string& path, HttpHandler handler)
 {
     getRoutes_[path] = std::move(handler);
+}
+
+void HttpServer::stream(const std::string& path, HttpStreamHandler handler)
+{
+    streamRoutes_[path] = std::move(handler);
 }
 
 bool HttpServer::run()
@@ -92,8 +98,11 @@ bool HttpServer::run()
             return false;
         }
 
-        handleClient(clientSocket);
-        close(clientSocket);
+        std::thread([this, clientSocket]()
+        {
+            handleClient(clientSocket);
+            close(clientSocket);
+        }).detach();
     }
 }
 
@@ -102,6 +111,13 @@ bool HttpServer::handleClient(int clientSocket)
     HttpRequest request;
     if (!receiveRequest(clientSocket, request))
         return sendResponse(clientSocket, HttpResponse::text("Bad Request", 400));
+
+    if (request.method == "GET")
+    {
+        auto streamRoute = streamRoutes_.find(request.path);
+        if (streamRoute != streamRoutes_.end())
+            return sendStream(clientSocket, streamRoute->second);
+    }
 
     return sendResponse(clientSocket, route(request));
 }
@@ -149,6 +165,40 @@ bool HttpServer::sendResponse(int clientSocket, const HttpResponse& response)
         "\r\n";
 
     return sendAll(clientSocket, header.data(), header.size()) && sendAll(clientSocket, response.body.data(), response.body.size());
+}
+
+bool HttpServer::sendStream(int clientSocket, const HttpStreamHandler& handler)
+{
+    static const std::string boundary = "telependulo-frame";
+    std::string header =
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: multipart/x-mixed-replace; boundary=" + boundary + "\r\n"
+        "Cache-Control: no-cache\r\n"
+        "Connection: close\r\n"
+        "\r\n";
+
+    if (!sendAll(clientSocket, header.data(), header.size()))
+        return false;
+
+    while (true)
+    {
+        std::vector<unsigned char> frame;
+        if (!handler(frame) || frame.empty())
+            return true;
+
+        std::string partHeader =
+            "--" + boundary + "\r\n"
+            "Content-Type: image/jpeg\r\n"
+            "Content-Length: " + std::to_string(frame.size()) + "\r\n"
+            "\r\n";
+
+        if (!sendAll(clientSocket, partHeader.data(), partHeader.size()) ||
+            !sendAll(clientSocket, reinterpret_cast<const char*>(frame.data()), frame.size()) ||
+            !sendAll(clientSocket, "\r\n", 2))
+        {
+            return false;
+        }
+    }
 }
 
 bool HttpServer::sendAll(int socket, const char* data, std::size_t size)
