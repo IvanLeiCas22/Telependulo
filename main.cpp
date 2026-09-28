@@ -3,6 +3,8 @@
 #include "camera/camerausb.h"
 #include "communication/httpserver.h"
 #include "web/pages.h"
+#include "lighting/lighting.h"
+#include "lighting/lightinggpio.h"
 
 #include <iostream>
 #include <mutex>
@@ -19,6 +21,32 @@ HttpResponse responderInicio(const HttpRequest& request)
 HttpResponse responderConfiguracion(const HttpRequest& request)
 {
     return HttpResponse::html(paginaConfiguracion());
+}
+
+HttpResponse responderEstadoLuz(Lighting& lighting, std::size_t channel)
+{
+    bool on = false;
+
+    if (!lighting.get(channel, on))
+        return HttpResponse::text("No se pudo leer la luz.", 500);
+
+    return HttpResponse::text(on ? "on" : "off");
+}
+
+HttpResponse responderCambioLuz(Lighting& lighting, std::size_t channel, bool on)
+{
+    if (!lighting.set(channel, on))
+        return HttpResponse::text("No se pudo cambiar la luz.", 500);
+
+    return HttpResponse::text("ok");
+}
+
+HttpResponse responderTodasLasLuces(Lighting& lighting, bool on)
+{
+    if (!lighting.setAll(on))
+        return HttpResponse::text("No se pudieron cambiar las luces.", 500);
+
+    return HttpResponse::text("ok");
 }
 
 HttpResponse responderCaptura(Camera& camera, std::mutex& cameraMutex)
@@ -67,9 +95,54 @@ int main()
     CameraIp camera2(ipConfig);
     std::mutex camera2Mutex;
 
+    GpioLightingConfig lightingConfig;
+    lightingConfig.chipPath = "/dev/gpiochip0";
+    lightingConfig.offsets = {22, 27};
+    lightingConfig.activeLow = false;
+    LightingGpio lighting(lightingConfig);
+
     HttpServer server(8080);                                    // Crear el server en el puerto 8080
     server.get("/", responderInicio);                           // Enlazar la ruta / con la página de inicio
     server.get("/config", responderConfiguracion);              // Enlazar la ruta /config con la página de configuración
+    server.get("/lighting/1", [&lighting](const HttpRequest&)
+               {
+                   return responderEstadoLuz(lighting, 0);
+               });
+
+    server.get("/lighting/2", [&lighting](const HttpRequest&)
+               {
+                   return responderEstadoLuz(lighting, 1);
+               });
+
+    server.put("/lighting/1/on", [&lighting](const HttpRequest&)
+               {
+                   return responderCambioLuz(lighting, 0, true);
+               });
+
+    server.put("/lighting/1/off", [&lighting](const HttpRequest&)
+               {
+                   return responderCambioLuz(lighting, 0, false);
+               });
+
+    server.put("/lighting/2/on", [&lighting](const HttpRequest&)
+               {
+                   return responderCambioLuz(lighting, 1, true);
+               });
+
+    server.put("/lighting/2/off", [&lighting](const HttpRequest&)
+               {
+                   return responderCambioLuz(lighting, 1, false);
+               });
+
+    server.put("/lighting/all/on", [&lighting](const HttpRequest&)
+               {
+                   return responderTodasLasLuces(lighting, true);
+               });
+
+    server.put("/lighting/all/off", [&lighting](const HttpRequest&)
+               {
+                   return responderTodasLasLuces(lighting, false);
+               });
     server.get("/capture/1", [&camera1, &camera1Mutex](const HttpRequest&)      // Capturar y devolver la cámara USB
     {
         return responderCaptura(camera1, camera1Mutex);

@@ -47,6 +47,11 @@ void HttpServer::get(const std::string& path, HttpHandler handler)
     getRoutes_[path] = std::move(handler);
 }
 
+void HttpServer::put(const std::string& path, HttpHandler handler)
+{
+    putRoutes_[path] = std::move(handler);
+}
+
 void HttpServer::stream(const std::string& path, HttpStreamHandler handler)
 {
     streamRoutes_[path] = std::move(handler);
@@ -145,14 +150,27 @@ bool HttpServer::receiveRequest(int clientSocket, HttpRequest& request)
 
 HttpResponse HttpServer::route(const HttpRequest& request) const
 {
-    if (request.method != "GET")
-        return HttpResponse::text("Method Not Allowed", 405);
+    if (request.method == "GET")
+    {
+        auto route = getRoutes_.find(request.path);
 
-    auto route = getRoutes_.find(request.path);
-    if (route == getRoutes_.end())
-        return HttpResponse::text("Not Found", 404);
+        if (route == getRoutes_.end())
+            return HttpResponse::text("Not Found", 404);
 
-    return route->second(request);
+        return route->second(request);
+    }
+
+    if (request.method == "PUT")
+    {
+        auto route = putRoutes_.find(request.path);
+
+        if (route == putRoutes_.end())
+            return HttpResponse::text("Not Found", 404);
+
+        return route->second(request);
+    }
+
+    return HttpResponse::text("Method Not Allowed", 405);
 }
 
 bool HttpServer::sendResponse(int clientSocket, const HttpResponse& response)

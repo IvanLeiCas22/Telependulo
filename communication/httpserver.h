@@ -33,6 +33,7 @@ public:
     explicit HttpServer(int port = 8080);
 
     void get(const std::string& path, HttpHandler handler);                       // Registrar una ruta GET y decir qué callback debe atenderla
+    void put(const std::string& path, HttpHandler handler);
     void stream(const std::string& path, HttpStreamHandler handler);               // Registrar un stream MJPEG
     bool run();
 
@@ -47,6 +48,7 @@ private:
     int port_;                                                                    // Instancia de la clase, conectada a port
     std::unordered_map<std::string, HttpHandler> getRoutes_;
     std::unordered_map<std::string, HttpStreamHandler> streamRoutes_;
+    std::unordered_map<std::string, HttpHandler> putRoutes_;
 };
 
 #endif // HTTPSERVER_H
