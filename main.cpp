@@ -9,6 +9,7 @@
 #include <iostream>
 #include <mutex>
 #include <opencv2/imgcodecs.hpp>
+#include <opencv2/videoio.hpp>
 #include <string>
 #include <utility>
 #include <vector>
@@ -86,6 +87,7 @@ int main()
     usbConfig.width = 1920;
     usbConfig.height = 1080;
     usbConfig.fps = 5;
+    usbConfig.fourcc = cv::VideoWriter::fourcc('Y', 'U', 'Y', 'V');
     CameraUsb camera1(usbConfig);
     std::mutex camera1Mutex;
 

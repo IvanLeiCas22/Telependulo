@@ -9,6 +9,7 @@ struct UsbCameraConfig
     int width = 1920;
     int height = 1080;
     int fps = 5;
+    int fourcc = 0;
 };
 
 class CameraUsb : public Camera
