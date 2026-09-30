@@ -54,7 +54,19 @@ void HttpServer::put(const std::string& path, HttpHandler handler)
 
 void HttpServer::stream(const std::string& path, HttpStreamHandler handler)
 {
-    streamRoutes_[path] = std::move(handler);
+    HttpStreamRoute route;
+    route.frame = std::move(handler);
+    streamRoutes_[path] = std::move(route);
+}
+
+void HttpServer::stream(const std::string& path, HttpStreamStartHandler start,
+                        HttpStreamHandler handler, HttpStreamStopHandler stop)
+{
+    HttpStreamRoute route;
+    route.start = std::move(start);
+    route.frame = std::move(handler);
+    route.stop = std::move(stop);
+    streamRoutes_[path] = std::move(route);
 }
 
 bool HttpServer::run()
@@ -185,8 +197,11 @@ bool HttpServer::sendResponse(int clientSocket, const HttpResponse& response)
     return sendAll(clientSocket, header.data(), header.size()) && sendAll(clientSocket, response.body.data(), response.body.size());
 }
 
-bool HttpServer::sendStream(int clientSocket, const HttpStreamHandler& handler)
+bool HttpServer::sendStream(int clientSocket, const HttpStreamRoute& route)
 {
+    if (route.start && !route.start())
+        return false;
+
     static const std::string boundary = "telependulo-frame";
     std::string header =
         "HTTP/1.1 200 OK\r\n"
@@ -196,13 +211,19 @@ bool HttpServer::sendStream(int clientSocket, const HttpStreamHandler& handler)
         "\r\n";
 
     if (!sendAll(clientSocket, header.data(), header.size()))
+    {
+        if (route.stop) route.stop();
         return false;
+    }
 
     while (true)
     {
         std::vector<unsigned char> frame;
-        if (!handler(frame) || frame.empty())
+        if (!route.frame(frame) || frame.empty())
+        {
+            if (route.stop) route.stop();
             return true;
+        }
 
         std::string partHeader =
             "--" + boundary + "\r\n"
@@ -214,6 +235,7 @@ bool HttpServer::sendStream(int clientSocket, const HttpStreamHandler& handler)
             !sendAll(clientSocket, reinterpret_cast<const char*>(frame.data()), frame.size()) ||
             !sendAll(clientSocket, "\r\n", 2))
         {
+            if (route.stop) route.stop();
             return false;
         }
     }

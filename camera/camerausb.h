@@ -29,6 +29,7 @@ public:
 private:
     UsbCameraConfig config_;
     cv::VideoCapture camera_;
+    int users_ = 0;
     bool contratoMostrado_ = false;
 };
 

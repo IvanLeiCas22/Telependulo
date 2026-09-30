@@ -80,6 +80,19 @@ bool capturarJpeg(Camera& camera, std::mutex& cameraMutex, std::vector<unsigned 
     return cv::imencode(".jpg", frame, jpeg);
 }
 
+bool leerJpeg(CameraUsb& camera, std::mutex& cameraMutex, std::vector<unsigned char>& jpeg)
+{
+    cv::Mat frame;
+    {
+        std::lock_guard<std::mutex> lock(cameraMutex);
+        if (!camera.read(frame))
+            return false;
+    }
+
+    jpeg.clear();
+    return cv::imencode(".jpg", frame, jpeg);
+}
+
 int main()
 {
     UsbCameraConfig usbConfig;
@@ -154,10 +167,21 @@ int main()
     {
         return responderCaptura(camera2, camera2Mutex);
     });
-    server.stream("/stream/1", [&camera1, &camera1Mutex](std::vector<unsigned char>& jpeg)
-    {
-        return capturarJpeg(camera1, camera1Mutex, jpeg);
-    });
+    server.stream("/stream/1",
+                  [&camera1, &camera1Mutex]()
+                  {
+                      std::lock_guard<std::mutex> lock(camera1Mutex);
+                      return camera1.open();
+                  },
+                  [&camera1, &camera1Mutex](std::vector<unsigned char>& jpeg)
+                  {
+                      return leerJpeg(camera1, camera1Mutex, jpeg);
+                  },
+                  [&camera1, &camera1Mutex]()
+                  {
+                      std::lock_guard<std::mutex> lock(camera1Mutex);
+                      camera1.close();
+                  });
     server.stream("/stream/2", [&camera2, &camera2Mutex](std::vector<unsigned char>& jpeg)
     {
         return capturarJpeg(camera2, camera2Mutex, jpeg);

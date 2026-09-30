@@ -9,7 +9,10 @@ CameraUsb::CameraUsb(const UsbCameraConfig& config) : config_(config)
 bool CameraUsb::open()
 {
     if (camera_.isOpened())
+    {
+        ++users_;
         return true;
+    }
 
     if (!camera_.open(config_.deviceIndex, cv::CAP_V4L2))
     {
@@ -22,6 +25,22 @@ bool CameraUsb::open()
     camera_.set(cv::CAP_PROP_FRAME_HEIGHT, config_.height);
     camera_.set(cv::CAP_PROP_FPS, config_.fps);
 
+    int warmupFrames = static_cast<int>(camera_.get(cv::CAP_PROP_FPS));
+    if (warmupFrames <= 0)
+        warmupFrames = config_.fps;
+
+    cv::Mat warmupFrame;
+    for (int i = 0; i < warmupFrames; ++i)
+    {
+        if (!camera_.read(warmupFrame) || warmupFrame.empty())
+        {
+            std::cerr << "[CameraUsb] Fallo durante el warm-up.\n";
+            camera_.release();
+            return false;
+        }
+    }
+
+    users_ = 1;
     return true;
 }
 
@@ -66,7 +85,12 @@ bool CameraUsb::read(cv::Mat& frame)
 
 void CameraUsb::close()
 {
-    if (camera_.isOpened())
+    if (users_ <= 0)
+        return;
+
+    --users_;
+
+    if (users_ == 0 && camera_.isOpened())
         camera_.release();
 }
 

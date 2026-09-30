@@ -26,6 +26,15 @@ struct HttpResponse
 
 using HttpHandler = std::function<HttpResponse(const HttpRequest&)>;
 using HttpStreamHandler = std::function<bool(std::vector<unsigned char>&)>;
+using HttpStreamStartHandler = std::function<bool()>;
+using HttpStreamStopHandler = std::function<void()>;
+
+struct HttpStreamRoute
+{
+    HttpStreamStartHandler start;
+    HttpStreamHandler frame;
+    HttpStreamStopHandler stop;
+};
 
 class HttpServer
 {
@@ -35,20 +44,22 @@ public:
     void get(const std::string& path, HttpHandler handler);                       // Registrar una ruta GET y decir qué callback debe atenderla
     void put(const std::string& path, HttpHandler handler);
     void stream(const std::string& path, HttpStreamHandler handler);               // Registrar un stream MJPEG
+    void stream(const std::string& path, HttpStreamStartHandler start,
+                HttpStreamHandler handler, HttpStreamStopHandler stop);
     bool run();
 
 private:
     bool handleClient(int clientSocket);
     bool receiveRequest(int clientSocket, HttpRequest& request);
     bool sendResponse(int clientSocket, const HttpResponse& response);
-    bool sendStream(int clientSocket, const HttpStreamHandler& handler);
+    bool sendStream(int clientSocket, const HttpStreamRoute& route);
     bool sendAll(int socket, const char* data, std::size_t size);
     HttpResponse route(const HttpRequest& request) const;
 
     int port_;                                                                    // Instancia de la clase, conectada a port
     std::unordered_map<std::string, HttpHandler> getRoutes_;
     std::unordered_map<std::string, HttpHandler> putRoutes_;
-    std::unordered_map<std::string, HttpStreamHandler> streamRoutes_;
+    std::unordered_map<std::string, HttpStreamRoute> streamRoutes_;
 };
 
 #endif // HTTPSERVER_H
