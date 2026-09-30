@@ -24,6 +24,7 @@ public:
     void close();
     bool isOpen() const;
     void printV4l2Controls() const;
+    bool setV4l2Control(unsigned int id, int value) const;
 
     bool capture(cv::Mat& frame) override;
 
