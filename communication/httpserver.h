@@ -47,8 +47,8 @@ private:
 
     int port_;                                                                    // Instancia de la clase, conectada a port
     std::unordered_map<std::string, HttpHandler> getRoutes_;
-    std::unordered_map<std::string, HttpStreamHandler> streamRoutes_;
     std::unordered_map<std::string, HttpHandler> putRoutes_;
+    std::unordered_map<std::string, HttpStreamHandler> streamRoutes_;
 };
 
 #endif // HTTPSERVER_H

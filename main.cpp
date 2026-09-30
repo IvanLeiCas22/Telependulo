@@ -2,9 +2,9 @@
 #include "camera/cameraip.h"
 #include "camera/camerausb.h"
 #include "communication/httpserver.h"
-#include "web/pages.h"
 #include "lighting/lighting.h"
 #include "lighting/lightinggpio.h"
+#include "web/pages.h"
 
 #include <iostream>
 #include <mutex>
@@ -143,6 +143,7 @@ int main()
                {
                    return responderTodasLasLuces(lighting, false);
                });
+
     server.get("/capture/1", [&camera1, &camera1Mutex](const HttpRequest&)      // Capturar y devolver la cámara USB
     {
         return responderCaptura(camera1, camera1Mutex);

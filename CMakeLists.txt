@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.18)
 
 project(Telependulo LANGUAGES CXX)
 
@@ -14,21 +14,21 @@ find_library(GPIOD_LIBRARY NAMES gpiod REQUIRED)
 add_executable(Telependulo
     main.cpp
 
-    communication/httpserver.cpp
-    communication/httpserver.h
-
-    web/pages.cpp
-    web/pages.h
-
     camera/camera.h
     camera/camerausb.cpp
     camera/camerausb.h
     camera/cameraip.cpp
     camera/cameraip.h
 
+    communication/httpserver.cpp
+    communication/httpserver.h
+
     lighting/lighting.h
     lighting/lightinggpio.cpp
     lighting/lightinggpio.h
+
+    web/pages.cpp
+    web/pages.h
 )
 
 target_include_directories(
@@ -43,4 +43,10 @@ target_link_libraries(
     PRIVATE
     ${OpenCV_LIBS}
     ${GPIOD_LIBRARY}
+)
+
+include(GNUInstallDirs)
+
+install(TARGETS Telependulo
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )

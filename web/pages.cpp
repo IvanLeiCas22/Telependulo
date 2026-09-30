@@ -108,11 +108,6 @@ std::string crearPagina(
             color: #b42318;
         }
 
-        .controls {
-            display: flex;
-            gap: 8px;
-        }
-
         button {
             padding: 9px 14px;
             border: none;
