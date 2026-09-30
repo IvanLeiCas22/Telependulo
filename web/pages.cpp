@@ -259,6 +259,23 @@ std::string paginaInicio()
         </div>
 
         <img id="imagen-1" class="camera-image" alt="Cámara 1">
+
+        <div class="camera-settings">
+            <h3>Configuración</h3>
+
+            <div class="v4l2-row">
+                <span>Resolución</span>
+                <select id="resolucion-1" class="v4l2-input"></select>
+            </div>
+
+            <div class="v4l2-row">
+                <span>FPS</span>
+                <select id="fps-1" class="v4l2-input"></select>
+            </div>
+
+            <div id="estado-modos-1" class="estado">Consultando modos...</div>
+            <div id="controles-camara-1"></div>
+        </div>
     </div>
 
     <div id="panel-2" class="camera-panel">
@@ -404,6 +421,187 @@ function ejecutarCamara(numero)
         iniciarStream(numero);
 }
 
+const modosDisponibles = {
+    1: []
+};
+
+function actualizarFps(numero)
+{
+    const resolucion = document.getElementById(`resolucion-${numero}`);
+    const fps = document.getElementById(`fps-${numero}`);
+    const modo = resolucion.value;
+
+    fps.replaceChildren();
+
+    for (const item of modosDisponibles[numero])
+    {
+        if (`${item.width}x${item.height}` !== modo)
+            continue;
+
+        const option = document.createElement("option");
+        option.value = item.fps;
+        option.textContent = `${item.fps} FPS`;
+        fps.appendChild(option);
+    }
+}
+
+async function cargarModosCamara(numero)
+{
+    const estado = document.getElementById(`estado-modos-${numero}`);
+    const resolucion = document.getElementById(`resolucion-${numero}`);
+
+    try
+    {
+        const response = await fetch(`/camera/${numero}/modes`, {cache: "no-store"});
+
+        if (!response.ok)
+            throw new Error();
+
+        modosDisponibles[numero] = await response.json();
+        const resoluciones = [];
+
+        for (const item of modosDisponibles[numero])
+        {
+            const value = `${item.width}x${item.height}`;
+
+            if (!resoluciones.includes(value))
+                resoluciones.push(value);
+        }
+
+        resolucion.replaceChildren();
+
+        for (const value of resoluciones)
+        {
+            const option = document.createElement("option");
+            option.value = value;
+            option.textContent = value;
+            resolucion.appendChild(option);
+        }
+
+        resolucion.addEventListener("change", () => actualizarFps(numero));
+        actualizarFps(numero);
+        estado.style.display = "none";
+    }
+    catch
+    {
+        estado.textContent = "No se pudieron consultar los modos.";
+        estado.className = "estado error";
+        resolucion.disabled = true;
+        document.getElementById(`fps-${numero}`).disabled = true;
+    }
+}
+
+function crearEntradaControl(numero, control)
+{
+    let entrada;
+
+    if (control.type === "integer")
+    {
+        entrada = document.createElement("input");
+        entrada.type = "number";
+        entrada.value = control.value;
+        entrada.min = control.min;
+        entrada.max = control.max;
+        entrada.step = control.step;
+    }
+    else if (control.type === "boolean")
+    {
+        entrada = document.createElement("input");
+        entrada.type = "checkbox";
+        entrada.checked = control.value !== 0;
+    }
+    else
+    {
+        entrada = document.createElement("select");
+
+        for (const option of control.options)
+        {
+            const item = document.createElement("option");
+            item.value = option.value;
+            item.textContent = option.name;
+            entrada.appendChild(item);
+        }
+
+        entrada.value = control.value;
+    }
+
+    entrada.className = "v4l2-input";
+    entrada.disabled = control.inactive;
+    entrada.addEventListener("change", () => cambiarControlCamara(numero, control, entrada));
+    return entrada;
+}
+
+async function cambiarControlCamara(numero, control, entrada)
+{
+    const value = control.type === "boolean" ? (entrada.checked ? 1 : 0) : entrada.value;
+    entrada.disabled = true;
+
+    try
+    {
+        const response = await fetch(
+            `/camera/${numero}/control?id=${control.id}&value=${value}`,
+            {method: "PUT"}
+        );
+
+        if (!response.ok)
+            throw new Error();
+    }
+    catch
+    {
+        alert("No se pudo cambiar el control de la cámara.");
+    }
+
+    await cargarControlesCamara(numero);
+}
+
+async function cargarControlesCamara(numero)
+{
+    const estado = document.getElementById(`estado-modos-${numero}`);
+    const contenedor = document.getElementById(`controles-camara-${numero}`);
+
+    try
+    {
+        const response = await fetch(`/camera/${numero}/controls`, {cache: "no-store"});
+
+        if (!response.ok)
+            throw new Error();
+
+        const controls = await response.json();
+        contenedor.replaceChildren();
+
+        for (const control of controls)
+        {
+            const row = document.createElement("div");
+            row.className = control.inactive ? "v4l2-row inactive" : "v4l2-row";
+
+            const name = document.createElement("span");
+            name.textContent = control.name;
+
+            row.appendChild(name);
+            row.appendChild(crearEntradaControl(numero, control));
+            contenedor.appendChild(row);
+        }
+
+        if (controls.length === 0)
+        {
+            const mensaje = document.createElement("div");
+            mensaje.className = "estado";
+            mensaje.textContent = "No hay controles disponibles.";
+            contenedor.appendChild(mensaje);
+        }
+    }
+    catch
+    {
+        const mensaje = document.createElement("div");
+        mensaje.className = "estado error";
+        mensaje.textContent = "No se pudieron consultar los controles.";
+        contenedor.replaceChildren(mensaje);
+    }
+}
+
+cargarModosCamara(1);
+cargarControlesCamara(1);
+
 </script>
 
 )HTML");
@@ -466,16 +664,6 @@ std::string paginaConfiguracion()
     </div>
 
 </section>
-
-<section class="panel">
-
-    <h2>Cámara 1</h2>
-
-    <div id="estado-camara-1" class="estado">Consultando...</div>
-    <div id="controles-camara-1"></div>
-
-</section>
-
 
 <script>
 
@@ -657,108 +845,6 @@ async function alternarLuz(numero)
 }
 
 
-function crearEntradaControl(numero, control)
-{
-    let entrada;
-
-    if (control.type === "integer")
-    {
-        entrada = document.createElement("input");
-        entrada.type = "number";
-        entrada.value = control.value;
-        entrada.min = control.min;
-        entrada.max = control.max;
-        entrada.step = control.step;
-    }
-    else if (control.type === "boolean")
-    {
-        entrada = document.createElement("input");
-        entrada.type = "checkbox";
-        entrada.checked = control.value !== 0;
-    }
-    else
-    {
-        entrada = document.createElement("select");
-
-        for (const option of control.options)
-        {
-            const item = document.createElement("option");
-            item.value = option.value;
-            item.textContent = option.name;
-            entrada.appendChild(item);
-        }
-
-        entrada.value = control.value;
-    }
-
-    entrada.className = "v4l2-input";
-    entrada.disabled = control.inactive;
-    entrada.addEventListener("change", () => cambiarControlCamara(numero, control, entrada));
-    return entrada;
-}
-
-async function cambiarControlCamara(numero, control, entrada)
-{
-    const value = control.type === "boolean" ? (entrada.checked ? 1 : 0) : entrada.value;
-    entrada.disabled = true;
-
-    try
-    {
-        const response = await fetch(
-            `/camera/${numero}/control?id=${control.id}&value=${value}`,
-            {method: "PUT"}
-        );
-
-        if (!response.ok)
-            throw new Error();
-    }
-    catch
-    {
-        alert("No se pudo cambiar el control de la cámara.");
-    }
-
-    await cargarControlesCamara(numero);
-}
-
-async function cargarControlesCamara(numero)
-{
-    const estado = document.getElementById(`estado-camara-${numero}`);
-    const contenedor = document.getElementById(`controles-camara-${numero}`);
-
-    try
-    {
-        const response = await fetch(`/camera/${numero}/controls`, {cache: "no-store"});
-
-        if (!response.ok)
-            throw new Error();
-
-        const controls = await response.json();
-        contenedor.replaceChildren();
-
-        for (const control of controls)
-        {
-            const row = document.createElement("div");
-            row.className = control.inactive ? "v4l2-row inactive" : "v4l2-row";
-
-            const name = document.createElement("span");
-            name.textContent = control.name;
-
-            row.appendChild(name);
-            row.appendChild(crearEntradaControl(numero, control));
-            contenedor.appendChild(row);
-        }
-
-        estado.style.display = controls.length === 0 ? "block" : "none";
-        if (controls.length === 0)
-            estado.textContent = "No hay controles disponibles.";
-    }
-    catch
-    {
-        estado.textContent = "No disponible";
-        estado.className = "estado error";
-    }
-}
-
 async function alternarTodas()
 {
     if (estados[1] === null ||
@@ -823,7 +909,6 @@ async function alternarTodas()
 
 leerEstado(1);
 leerEstado(2);
-cargarControlesCamara(1);
 
 </script>
 
