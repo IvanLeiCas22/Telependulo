@@ -29,5 +29,25 @@ bool CameraUsb::capture(cv::Mat& frame) const
         return false;
     }
 
+    if (!contratoMostrado_)
+    {
+        const int fourcc = static_cast<int>(camera.get(cv::CAP_PROP_FOURCC));
+        const char formato[] = {
+            static_cast<char>(fourcc & 0xFF),
+            static_cast<char>((fourcc >> 8) & 0xFF),
+            static_cast<char>((fourcc >> 16) & 0xFF),
+            static_cast<char>((fourcc >> 24) & 0xFF),
+            '\0'
+        };
+
+        std::cout << "[CameraUsb] /dev/video" << config_.deviceIndex
+                  << " - " << formato
+                  << " | " << camera.get(cv::CAP_PROP_FRAME_WIDTH)
+                  << "x" << camera.get(cv::CAP_PROP_FRAME_HEIGHT)
+                  << " | " << camera.get(cv::CAP_PROP_FPS) << " FPS\n";
+
+        contratoMostrado_ = true;
+    }
+
     return true;
 }

@@ -21,6 +21,7 @@ public:
 
 private:
     UsbCameraConfig config_;
+    mutable bool contratoMostrado_ = false;
 };
 
 #endif // CAMERAUSB_H
