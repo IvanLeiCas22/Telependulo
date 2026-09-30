@@ -132,6 +132,35 @@ std::string crearPagina(
             margin-top: 24px;
         }
 
+        .panel + .panel {
+            margin-top: 20px;
+        }
+
+        .v4l2-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 20px;
+            padding: 12px 0;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .v4l2-row:last-child {
+            border-bottom: none;
+        }
+
+        .v4l2-row.inactive {
+            opacity: 0.45;
+        }
+
+        .v4l2-input {
+            width: 180px;
+        }
+
+        .v4l2-row input[type="checkbox"] {
+            width: auto;
+        }
+
         .camera-grid {
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -432,6 +461,15 @@ std::string paginaConfiguracion()
 
 </section>
 
+<section class="panel">
+
+    <h2>Cámara 1</h2>
+
+    <div id="estado-camara-1" class="estado">Consultando...</div>
+    <div id="controles-camara-1"></div>
+
+</section>
+
 
 <script>
 
@@ -613,6 +651,84 @@ async function alternarLuz(numero)
 }
 
 
+function crearEntradaControl(control)
+{
+    let entrada;
+
+    if (control.type === "integer")
+    {
+        entrada = document.createElement("input");
+        entrada.type = "number";
+        entrada.value = control.value;
+        entrada.min = control.min;
+        entrada.max = control.max;
+        entrada.step = control.step;
+    }
+    else if (control.type === "boolean")
+    {
+        entrada = document.createElement("input");
+        entrada.type = "checkbox";
+        entrada.checked = control.value !== 0;
+    }
+    else
+    {
+        entrada = document.createElement("select");
+
+        for (const option of control.options)
+        {
+            const item = document.createElement("option");
+            item.value = option.value;
+            item.textContent = option.name;
+            entrada.appendChild(item);
+        }
+
+        entrada.value = control.value;
+    }
+
+    entrada.className = "v4l2-input";
+    entrada.disabled = true;
+    return entrada;
+}
+
+async function cargarControlesCamara(numero)
+{
+    const estado = document.getElementById(`estado-camara-${numero}`);
+    const contenedor = document.getElementById(`controles-camara-${numero}`);
+
+    try
+    {
+        const response = await fetch(`/camera/${numero}/controls`, {cache: "no-store"});
+
+        if (!response.ok)
+            throw new Error();
+
+        const controls = await response.json();
+        contenedor.replaceChildren();
+
+        for (const control of controls)
+        {
+            const row = document.createElement("div");
+            row.className = control.inactive ? "v4l2-row inactive" : "v4l2-row";
+
+            const name = document.createElement("span");
+            name.textContent = control.name;
+
+            row.appendChild(name);
+            row.appendChild(crearEntradaControl(control));
+            contenedor.appendChild(row);
+        }
+
+        estado.style.display = controls.length === 0 ? "block" : "none";
+        if (controls.length === 0)
+            estado.textContent = "No hay controles disponibles.";
+    }
+    catch
+    {
+        estado.textContent = "No disponible";
+        estado.className = "estado error";
+    }
+}
+
 async function alternarTodas()
 {
     if (estados[1] === null ||
@@ -677,6 +793,7 @@ async function alternarTodas()
 
 leerEstado(1);
 leerEstado(2);
+cargarControlesCamara(1);
 
 </script>
 
