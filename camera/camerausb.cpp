@@ -1,6 +1,53 @@
 #include "camerausb.h"
 
+#include <cerrno>
+#include <fcntl.h>
 #include <iostream>
+#include <linux/videodev2.h>
+#include <string>
+#include <sys/ioctl.h>
+#include <unistd.h>
+
+namespace
+{
+const char* controlTypeName(__u32 type)
+{
+    switch (type)
+    {
+    case V4L2_CTRL_TYPE_INTEGER: return "integer";
+    case V4L2_CTRL_TYPE_BOOLEAN: return "boolean";
+    case V4L2_CTRL_TYPE_MENU: return "menu";
+    case V4L2_CTRL_TYPE_BUTTON: return "button";
+    case V4L2_CTRL_TYPE_INTEGER64: return "integer64";
+    case V4L2_CTRL_TYPE_STRING: return "string";
+    case V4L2_CTRL_TYPE_BITMASK: return "bitmask";
+    case V4L2_CTRL_TYPE_INTEGER_MENU: return "integer-menu";
+    default: return "other";
+    }
+}
+
+void printMenu(int fd, const v4l2_query_ext_ctrl& control)
+{
+    for (__s64 index = control.minimum; index <= control.maximum; ++index)
+    {
+        v4l2_querymenu menu{};
+        menu.id = control.id;
+        menu.index = static_cast<__u32>(index);
+
+        if (ioctl(fd, VIDIOC_QUERYMENU, &menu) < 0)
+            continue;
+
+        std::cout << "      " << index << ": ";
+
+        if (control.type == V4L2_CTRL_TYPE_INTEGER_MENU)
+            std::cout << menu.value;
+        else
+            std::cout << reinterpret_cast<const char*>(menu.name);
+
+        std::cout << "\n";
+    }
+}
+}
 
 CameraUsb::CameraUsb(const UsbCameraConfig& config) : config_(config)
 {
@@ -97,6 +144,57 @@ void CameraUsb::close()
 bool CameraUsb::isOpen() const
 {
     return camera_.isOpened();
+}
+
+void CameraUsb::printV4l2Controls() const
+{
+    const std::string device = "/dev/video" + std::to_string(config_.deviceIndex);
+    const int fd = ::open(device.c_str(), O_RDWR);
+
+    if (fd < 0)
+    {
+        std::cerr << "[V4L2] No se pudo abrir " << device << " para consultar controles.\n";
+        return;
+    }
+
+    std::cout << "[V4L2] Controles de " << device << ":\n";
+
+    v4l2_query_ext_ctrl control{};
+    control.id = V4L2_CTRL_FLAG_NEXT_CTRL;
+
+    bool found = false;
+
+    while (ioctl(fd, VIDIOC_QUERY_EXT_CTRL, &control) == 0)
+    {
+        if (!(control.flags & V4L2_CTRL_FLAG_DISABLED) && control.type != V4L2_CTRL_TYPE_CTRL_CLASS)
+        {
+            found = true;
+
+            std::cout << "  " << reinterpret_cast<const char*>(control.name)
+                      << " | id=0x" << std::hex << control.id << std::dec
+                      << " | " << controlTypeName(control.type)
+                      << " | min=" << control.minimum
+                      << " max=" << control.maximum
+                      << " step=" << control.step
+                      << " default=" << control.default_value;
+
+            if (control.flags & V4L2_CTRL_FLAG_READ_ONLY) std::cout << " | read-only";
+            if (control.flags & V4L2_CTRL_FLAG_INACTIVE) std::cout << " | inactive";
+            std::cout << "\n";
+
+            if (control.type == V4L2_CTRL_TYPE_MENU || control.type == V4L2_CTRL_TYPE_INTEGER_MENU)
+                printMenu(fd, control);
+        }
+
+        control.id |= V4L2_CTRL_FLAG_NEXT_CTRL;
+    }
+
+    if (!found)
+        std::cout << "  No se encontraron controles.\n";
+    else if (errno != EINVAL)
+        std::cerr << "[V4L2] La enumeracion termino con un error.\n";
+
+    ::close(fd);
 }
 
 bool CameraUsb::capture(cv::Mat& frame)

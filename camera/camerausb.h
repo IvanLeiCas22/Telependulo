@@ -23,6 +23,7 @@ public:
     bool read(cv::Mat& frame);
     void close();
     bool isOpen() const;
+    void printV4l2Controls() const;
 
     bool capture(cv::Mat& frame) override;
 

@@ -102,6 +102,7 @@ int main()
     usbConfig.fps = 5;
     usbConfig.fourcc = cv::VideoWriter::fourcc('Y', 'U', 'Y', 'V');
     CameraUsb camera1(usbConfig);
+    camera1.printV4l2Controls();
     std::mutex camera1Mutex;
 
     IpCameraConfig ipConfig;
