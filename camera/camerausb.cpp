@@ -168,6 +168,31 @@ bool CameraUsb::isOpen() const
     return camera_.isOpened();
 }
 
+bool CameraUsb::setV4l2Control(unsigned int id, int value) const
+{
+    const std::string device = "/dev/video" + std::to_string(config_.deviceIndex);
+    const int fd = ::open(device.c_str(), O_RDWR);
+
+    if (fd < 0)
+    {
+        std::cerr << "[V4L2] No se pudo abrir " << device << " para cambiar un control.\n";
+        return false;
+    }
+
+    v4l2_control control{};
+    control.id = id;
+    control.value = value;
+
+    const bool success = ioctl(fd, VIDIOC_S_CTRL, &control) == 0;
+
+    if (!success)
+        std::cerr << "[V4L2] No se pudo cambiar el control 0x"
+                  << std::hex << id << std::dec << " a " << value << ".\n";
+
+    ::close(fd);
+    return success;
+}
+
 void CameraUsb::printV4l2Controls() const
 {
     const std::string device = "/dev/video" + std::to_string(config_.deviceIndex);
