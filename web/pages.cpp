@@ -136,7 +136,11 @@ std::string crearPagina(
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
             gap: 20px;
-            max-width: 1300px;
+            width: 100%;
+        }
+
+        .camera-grid.single-view {
+            grid-template-columns: 1fr;
         }
 
         .camera-panel {
@@ -211,9 +215,9 @@ std::string paginaInicio()
 
         R"HTML(
 
-<section class="camera-grid">
+<section id="camera-grid" class="camera-grid">
 
-    <div class="camera-panel">
+    <div id="panel-1" class="camera-panel">
         <h2>Cámara 1</h2>
 
         <div class="camera-controls">
@@ -224,7 +228,7 @@ std::string paginaInicio()
         <img id="imagen-1" class="camera-image" alt="Cámara 1">
     </div>
 
-    <div class="camera-panel">
+    <div id="panel-2" class="camera-panel">
         <h2>Cámara 2</h2>
 
         <div class="camera-controls">
@@ -254,6 +258,15 @@ const capturas = {
     2: null
 };
 
+function actualizarDistribucion()
+{
+    const visibles = [1, 2].filter(numero => {
+        return document.getElementById(`imagen-${numero}`).style.display !== "none";
+    }).length;
+
+    document.getElementById("camera-grid").classList.toggle("single-view", visibles === 1);
+}
+
 function limpiarImagen(numero)
 {
     const imagen = document.getElementById(`imagen-${numero}`);
@@ -266,6 +279,8 @@ function limpiarImagen(numero)
 
     imagen.removeAttribute("src");
     imagen.style.display = "none";
+
+    actualizarDistribucion();
 }
 
 function detenerStream(numero)
@@ -314,6 +329,8 @@ async function capturar(numero)
         capturas[numero] = URL.createObjectURL(blob);
         imagen.src = capturas[numero];
         imagen.style.display = "block";
+
+        actualizarDistribucion();
     }
     catch
     {
@@ -331,6 +348,8 @@ function iniciarStream(numero)
     streamsActivos[numero] = true;
     imagen.src = `/stream/${numero}`;
     imagen.style.display = "block";
+
+    actualizarDistribucion();
 
     boton.textContent = "Detener";
     boton.className = "off";
