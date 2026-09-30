@@ -32,7 +32,11 @@ std::string crearPagina(
         }
 
         .sidebar {
+            position: sticky;
+            top: 0;
+            align-self: flex-start;
             width: 220px;
+            height: 100vh;
             padding: 24px 16px;
             background: #20252b;
         }
