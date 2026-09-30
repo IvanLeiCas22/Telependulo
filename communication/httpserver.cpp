@@ -53,6 +53,31 @@ bool HttpRequest::queryParam(const std::string& key, std::string& value) const
     return false;
 }
 
+bool HttpRequest::queryParam(const std::string& key, std::string& value) const
+{
+    std::size_t start = 0;
+
+    while (start < query.size())
+    {
+        std::size_t end = query.find('&', start);
+        if (end == std::string::npos)
+            end = query.size();
+
+        const std::string parameter = query.substr(start, end - start);
+        const std::size_t separator = parameter.find('=');
+
+        if (separator != std::string::npos && parameter.substr(0, separator) == key)
+        {
+            value = parameter.substr(separator + 1);
+            return true;
+        }
+
+        start = end + 1;
+    }
+
+    return false;
+}
+
 HttpResponse HttpResponse::html(std::string body, int statusCode)
 {
     return {statusCode, "text/html; charset=utf-8", std::move(body)};
