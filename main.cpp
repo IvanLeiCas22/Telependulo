@@ -68,31 +68,6 @@ std::string escaparJson(const std::string& text)
     return result;
 }
 
-bool leerParametroQuery(const std::string& query, const std::string& key, std::string& value)
-{
-    std::size_t start = 0;
-
-    while (start < query.size())
-    {
-        std::size_t end = query.find('&', start);
-        if (end == std::string::npos)
-            end = query.size();
-
-        const std::string parameter = query.substr(start, end - start);
-        const std::size_t separator = parameter.find('=');
-
-        if (separator != std::string::npos && parameter.substr(0, separator) == key)
-        {
-            value = parameter.substr(separator + 1);
-            return true;
-        }
-
-        start = end + 1;
-    }
-
-    return false;
-}
-
 bool convertirIdControl(const std::string& text, unsigned int& value)
 {
     try
@@ -152,8 +127,8 @@ HttpResponse responderCambioControlCamara(CameraUsb& camera, std::mutex& cameraM
     std::string idText;
     std::string valueText;
 
-    if (!leerParametroQuery(request.query, "id", idText) ||
-        !leerParametroQuery(request.query, "value", valueText))
+    if (!request.queryParam("id", idText) ||
+        !request.queryParam("value", valueText))
     {
         return HttpResponse::text("Faltan parametros id o value.", 400);
     }
