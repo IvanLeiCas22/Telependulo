@@ -6,6 +6,7 @@
 #include "lighting/lightinggpio.h"
 #include "web/pages.h"
 
+#include <cmath>
 #include <iostream>
 #include <limits>
 #include <linux/videodev2.h>
@@ -110,6 +111,21 @@ bool convertirValorControl(const std::string& text, int& value)
     }
 }
 
+bool convertirFps(const std::string& text, double& value)
+{
+    try
+    {
+        std::size_t parsed = 0;
+        value = std::stod(text, &parsed);
+
+        return parsed == text.size() && std::isfinite(value) && value > 0;
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
+
 const char* tipoControlV4l2(unsigned int type)
 {
     switch (type)
@@ -171,6 +187,38 @@ HttpResponse responderModosCamara(CameraUsb& camera, std::mutex& cameraMutex)
     json += "]";
 
     return {200, "application/json; charset=utf-8", std::move(json)};
+}
+
+HttpResponse responderCambioModoCamara(CameraUsb& camera, std::mutex& cameraMutex, const HttpRequest& request)
+{
+    std::string widthText;
+    std::string heightText;
+    std::string fpsText;
+
+    if (!request.queryParam("width", widthText) ||
+        !request.queryParam("height", heightText) ||
+        !request.queryParam("fps", fpsText))
+    {
+        return HttpResponse::text("Faltan parametros width, height o fps.", 400);
+    }
+
+    int width = 0;
+    int height = 0;
+    double fps = 0;
+
+    if (!convertirValorControl(widthText, width) ||
+        !convertirValorControl(heightText, height) ||
+        !convertirFps(fpsText, fps))
+    {
+        return HttpResponse::text("Parametros de modo invalidos.", 400);
+    }
+
+    std::lock_guard<std::mutex> lock(cameraMutex);
+
+    if (!camera.setMode(width, height, fps))
+        return HttpResponse::text("No se pudo cambiar el modo de la camara.", 500);
+
+    return HttpResponse::text("ok");
 }
 
 HttpResponse responderControlesCamara(CameraUsb& camera, std::mutex& cameraMutex)
@@ -350,6 +398,11 @@ int main()
     server.put("/camera/1/control", [&camera1, &camera1Mutex](const HttpRequest& request)
     {
         return responderCambioControlCamara(camera1, camera1Mutex, request);
+    });
+
+    server.put("/camera/1/mode", [&camera1, &camera1Mutex](const HttpRequest& request)
+    {
+        return responderCambioModoCamara(camera1, camera1Mutex, request);
     });
 
     server.get("/capture/1", [&camera1, &camera1Mutex](const HttpRequest&)      // Capturar y devolver la cámara USB

@@ -445,10 +445,35 @@ function actualizarFps(numero)
     }
 }
 
+async function cambiarModoCamara(numero)
+{
+    const resolucion = document.getElementById(`resolucion-${numero}`);
+    const fps = document.getElementById(`fps-${numero}`);
+
+    const [width, height] = resolucion.value.split("x");
+
+    try
+    {
+        const response = await fetch(
+            `/camera/${numero}/mode?width=${width}&height=${height}&fps=${fps.value}`,
+            {method: "PUT"}
+        );
+
+        if (!response.ok)
+            throw new Error();
+    }
+    catch
+    {
+        alert("No se pudo cambiar el modo de la cámara.");
+        await cargarModosCamara(numero);
+    }
+}
+
 async function cargarModosCamara(numero)
 {
     const estado = document.getElementById(`estado-modos-${numero}`);
     const resolucion = document.getElementById(`resolucion-${numero}`);
+    const fps = document.getElementById(`fps-${numero}`);
 
     try
     {
@@ -478,7 +503,11 @@ async function cargarModosCamara(numero)
             resolucion.appendChild(option);
         }
 
-        resolucion.addEventListener("change", () => actualizarFps(numero));
+        resolucion.onchange = () => actualizarFps(numero);
+        fps.onchange = () => cambiarModoCamara(numero);
+
+        resolucion.disabled = false;
+        fps.disabled = false;
         actualizarFps(numero);
         estado.style.display = "none";
     }
@@ -487,7 +516,7 @@ async function cargarModosCamara(numero)
         estado.textContent = "No se pudieron consultar los modos.";
         estado.className = "estado error";
         resolucion.disabled = true;
-        document.getElementById(`fps-${numero}`).disabled = true;
+        fps.disabled = true;
     }
 }
 

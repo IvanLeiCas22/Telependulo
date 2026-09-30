@@ -41,7 +41,7 @@ struct UsbCameraConfig
     int deviceIndex = 0;
     int width = 1920;
     int height = 1080;
-    int fps = 5;
+    double fps = 5;
     int fourcc = 0;
 };
 
@@ -55,6 +55,7 @@ public:
     void close();
 
     bool getAvailableModes(std::vector<CameraMode>& modes) const;
+    bool setMode(int width, int height, double fps);
     bool getV4l2Controls(std::vector<V4l2Control>& controls) const;
     bool setV4l2Control(unsigned int id, int value) const;
 

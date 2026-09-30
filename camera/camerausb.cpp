@@ -1,6 +1,7 @@
 #include "camerausb.h"
 
 #include <cerrno>
+#include <cmath>
 #include <fcntl.h>
 #include <iostream>
 #include <linux/videodev2.h>
@@ -84,9 +85,11 @@ bool CameraUsb::open()
     camera_.set(cv::CAP_PROP_FRAME_HEIGHT, config_.height);
     camera_.set(cv::CAP_PROP_FPS, config_.fps);
 
-    int warmupFrames = static_cast<int>(camera_.get(cv::CAP_PROP_FPS));
-    if (warmupFrames <= 0)
-        warmupFrames = config_.fps;
+    double actualFps = camera_.get(cv::CAP_PROP_FPS);
+    if (actualFps <= 0)
+        actualFps = config_.fps;
+
+    const int warmupFrames = static_cast<int>(std::ceil(actualFps));
 
     cv::Mat warmupFrame;
     for (int i = 0; i < warmupFrames; ++i)
@@ -214,8 +217,93 @@ bool CameraUsb::getAvailableModes(std::vector<CameraMode>& modes) const
     if (!success)
         std::cerr << "[V4L2] La enumeracion de modos termino con un error.\n";
 
+    if (success)
+    {
+        for (std::size_t i = 0; i < modes.size(); ++i)
+        {
+            if (modes[i].width == config_.width &&
+                modes[i].height == config_.height &&
+                std::abs(modes[i].fps - config_.fps) < 0.001)
+            {
+                if (i > 0)
+                    std::swap(modes[0], modes[i]);
+                break;
+            }
+        }
+    }
+
     ::close(fd);
     return success;
+}
+
+bool CameraUsb::setMode(int width, int height, double fps)
+{
+    std::vector<CameraMode> modes;
+    if (!getAvailableModes(modes))
+        return false;
+
+    bool valid = false;
+    for (const auto& mode : modes)
+    {
+        if (mode.width == width &&
+            mode.height == height &&
+            std::abs(mode.fps - fps) < 0.001)
+        {
+            valid = true;
+            break;
+        }
+    }
+
+    if (!valid)
+        return false;
+
+    if (config_.width == width &&
+        config_.height == height &&
+        std::abs(config_.fps - fps) < 0.001)
+    {
+        return true;
+    }
+
+    const UsbCameraConfig oldConfig = config_;
+    const int oldUsers = users_;
+
+    config_.width = width;
+    config_.height = height;
+    config_.fps = fps;
+
+    if (!camera_.isOpened())
+        return true;
+
+    camera_.release();
+    users_ = 0;
+
+    if (open())
+    {
+        const bool modeApplied =
+            std::abs(camera_.get(cv::CAP_PROP_FRAME_WIDTH) - width) < 0.5 &&
+            std::abs(camera_.get(cv::CAP_PROP_FRAME_HEIGHT) - height) < 0.5 &&
+            std::abs(camera_.get(cv::CAP_PROP_FPS) - fps) < 0.001;
+
+        if (modeApplied)
+        {
+            users_ = oldUsers;
+            return true;
+        }
+
+        camera_.release();
+        users_ = 0;
+    }
+
+    config_ = oldConfig;
+
+    if (!open())
+    {
+        std::cerr << "[CameraUsb] No se pudo restaurar el modo anterior.\n";
+        return false;
+    }
+
+    users_ = oldUsers;
+    return false;
 }
 
 bool CameraUsb::getV4l2Controls(std::vector<V4l2Control>& controls) const
