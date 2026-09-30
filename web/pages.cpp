@@ -655,7 +655,7 @@ async function alternarLuz(numero)
 }
 
 
-function crearEntradaControl(control)
+function crearEntradaControl(numero, control)
 {
     let entrada;
 
@@ -690,8 +690,32 @@ function crearEntradaControl(control)
     }
 
     entrada.className = "v4l2-input";
-    entrada.disabled = true;
+    entrada.disabled = control.inactive;
+    entrada.addEventListener("change", () => cambiarControlCamara(numero, control, entrada));
     return entrada;
+}
+
+async function cambiarControlCamara(numero, control, entrada)
+{
+    const value = control.type === "boolean" ? (entrada.checked ? 1 : 0) : entrada.value;
+    entrada.disabled = true;
+
+    try
+    {
+        const response = await fetch(
+            `/camera/${numero}/control?id=${control.id}&value=${value}`,
+            {method: "PUT"}
+        );
+
+        if (!response.ok)
+            throw new Error();
+    }
+    catch
+    {
+        alert("No se pudo cambiar el control de la cámara.");
+    }
+
+    await cargarControlesCamara(numero);
 }
 
 async function cargarControlesCamara(numero)
@@ -718,7 +742,7 @@ async function cargarControlesCamara(numero)
             name.textContent = control.name;
 
             row.appendChild(name);
-            row.appendChild(crearEntradaControl(control));
+            row.appendChild(crearEntradaControl(numero, control));
             contenedor.appendChild(row);
         }
 
