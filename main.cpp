@@ -152,7 +152,9 @@ HttpResponse responderControlesCamara(CameraUsb& camera, std::mutex& cameraMutex
     std::vector<V4l2Control> controls;
     {
         std::lock_guard<std::mutex> lock(cameraMutex);
-        controls = camera.getV4l2Controls();
+
+        if (!camera.getV4l2Controls(controls))
+            return HttpResponse::text("No se pudieron consultar los controles de la cámara.", 500);
     }
 
     std::string json = "[";

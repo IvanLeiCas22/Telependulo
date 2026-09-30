@@ -24,7 +24,6 @@ struct V4l2Control
     long long min = 0;
     long long max = 0;
     long long step = 0;
-    long long defaultValue = 0;
     bool inactive = false;
     bool readOnly = false;
     std::vector<V4l2MenuItem> menuItems;
@@ -47,11 +46,9 @@ public:
     bool open();
     bool read(cv::Mat& frame);
     void close();
-    bool isOpen() const;
 
-    std::vector<V4l2Control> getV4l2Controls() const;
+    bool getV4l2Controls(std::vector<V4l2Control>& controls) const;
     bool setV4l2Control(unsigned int id, int value) const;
-    void printV4l2Controls() const;
 
     bool capture(cv::Mat& frame) override;
 

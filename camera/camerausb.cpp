@@ -11,22 +11,6 @@
 
 namespace
 {
-const char* controlTypeName(__u32 type)
-{
-    switch (type)
-    {
-    case V4L2_CTRL_TYPE_INTEGER: return "integer";
-    case V4L2_CTRL_TYPE_BOOLEAN: return "boolean";
-    case V4L2_CTRL_TYPE_MENU: return "menu";
-    case V4L2_CTRL_TYPE_BUTTON: return "button";
-    case V4L2_CTRL_TYPE_INTEGER64: return "integer64";
-    case V4L2_CTRL_TYPE_STRING: return "string";
-    case V4L2_CTRL_TYPE_BITMASK: return "bitmask";
-    case V4L2_CTRL_TYPE_INTEGER_MENU: return "integer-menu";
-    default: return "other";
-    }
-}
-
 bool readControlValue(int fd, const v4l2_query_ext_ctrl& control, int& value)
 {
     if (control.flags & V4L2_CTRL_FLAG_WRITE_ONLY)
@@ -169,21 +153,16 @@ void CameraUsb::close()
         camera_.release();
 }
 
-bool CameraUsb::isOpen() const
+bool CameraUsb::getV4l2Controls(std::vector<V4l2Control>& controls) const
 {
-    return camera_.isOpened();
-}
-
-std::vector<V4l2Control> CameraUsb::getV4l2Controls() const
-{
-    std::vector<V4l2Control> controls;
+    controls.clear();
     const std::string device = "/dev/video" + std::to_string(config_.deviceIndex);
     const int fd = ::open(device.c_str(), O_RDWR);
 
     if (fd < 0)
     {
         std::cerr << "[V4L2] No se pudo abrir " << device << " para consultar controles.\n";
-        return controls;
+        return false;
     }
 
     v4l2_query_ext_ctrl query{};
@@ -200,7 +179,6 @@ std::vector<V4l2Control> CameraUsb::getV4l2Controls() const
             control.min = query.minimum;
             control.max = query.maximum;
             control.step = query.step;
-            control.defaultValue = query.default_value;
             control.inactive = query.flags & V4L2_CTRL_FLAG_INACTIVE;
             control.readOnly = query.flags & V4L2_CTRL_FLAG_READ_ONLY;
             control.hasValue = readControlValue(fd, query, control.value);
@@ -214,11 +192,12 @@ std::vector<V4l2Control> CameraUsb::getV4l2Controls() const
         query.id |= V4L2_CTRL_FLAG_NEXT_CTRL;
     }
 
-    if (errno != EINVAL)
+    const bool success = errno == EINVAL;
+    if (!success)
         std::cerr << "[V4L2] La enumeracion termino con un error.\n";
 
     ::close(fd);
-    return controls;
+    return success;
 }
 
 bool CameraUsb::setV4l2Control(unsigned int id, int value) const
@@ -244,41 +223,6 @@ bool CameraUsb::setV4l2Control(unsigned int id, int value) const
 
     ::close(fd);
     return success;
-}
-
-void CameraUsb::printV4l2Controls() const
-{
-    const auto controls = getV4l2Controls();
-
-    std::cout << "[V4L2] Controles de /dev/video" << config_.deviceIndex << ":\n";
-
-    if (controls.empty())
-    {
-        std::cout << "  No se encontraron controles.\n";
-        return;
-    }
-
-    for (const auto& control : controls)
-    {
-        std::cout << "  " << control.name
-                  << " | id=0x" << std::hex << control.id << std::dec
-                  << " | " << controlTypeName(control.type);
-
-        if (control.hasValue)
-            std::cout << " | value=" << control.value;
-
-        std::cout << " | min=" << control.min
-                  << " max=" << control.max
-                  << " step=" << control.step
-                  << " default=" << control.defaultValue;
-
-        if (control.readOnly) std::cout << " | read-only";
-        if (control.inactive) std::cout << " | inactive";
-        std::cout << "\n";
-
-        for (const auto& item : control.menuItems)
-            std::cout << "      " << item.value << ": " << item.name << "\n";
-    }
 }
 
 bool CameraUsb::capture(cv::Mat& frame)

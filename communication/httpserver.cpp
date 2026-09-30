@@ -232,7 +232,7 @@ bool HttpServer::sendResponse(int clientSocket, const HttpResponse& response)
 bool HttpServer::sendStream(int clientSocket, const HttpStreamRoute& route)
 {
     if (route.start && !route.start())
-        return false;
+        return sendResponse(clientSocket, HttpResponse::text("No se pudo iniciar el stream.", 500));
 
     static const std::string boundary = "telependulo-frame";
     std::string header =
@@ -248,9 +248,12 @@ bool HttpServer::sendStream(int clientSocket, const HttpStreamRoute& route)
         return false;
     }
 
+    std::vector<unsigned char> frame;
+
     while (true)
     {
-        std::vector<unsigned char> frame;
+        frame.clear();
+
         if (!route.frame(frame) || frame.empty())
         {
             if (route.stop) route.stop();

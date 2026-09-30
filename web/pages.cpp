@@ -294,7 +294,7 @@ const capturas = {
 function actualizarDistribucion()
 {
     const visibles = [1, 2].filter(numero => {
-        return document.getElementById(`imagen-${numero}`).style.display !== "none";
+        return document.getElementById(`imagen-${numero}`).hasAttribute("src");
     }).length;
 
     document.getElementById("camera-grid").classList.toggle("single-view", visibles === 1);
@@ -331,8 +331,10 @@ function detenerStream(numero)
 
 function alternarModo(numero)
 {
-    detenerStream(numero);
-    limpiarImagen(numero);
+    if (streamsActivos[numero])
+        detenerStream(numero);
+    else
+        limpiarImagen(numero);
 
     modosCamara[numero] = modosCamara[numero] === "capture" ? "stream" : "capture";
 
