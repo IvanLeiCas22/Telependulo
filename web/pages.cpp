@@ -131,6 +131,48 @@ std::string crearPagina(
             gap: 8px;
             margin-top: 24px;
         }
+
+        .camera-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 20px;
+            max-width: 1300px;
+        }
+
+        .camera-panel {
+            padding: 20px;
+            border-radius: 10px;
+            background: white;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+        }
+
+        .camera-panel h2 {
+            margin-top: 0;
+        }
+
+        .camera-controls {
+            display: flex;
+            gap: 8px;
+        }
+
+        .camera-mode {
+            min-width: 90px;
+            background: #d6d6d6;
+            color: #222;
+        }
+
+        .camera-image {
+            display: none;
+            width: 100%;
+            margin-top: 18px;
+            border-radius: 6px;
+        }
+
+        @media (max-width: 900px) {
+            .camera-grid {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 </head>
 
@@ -164,7 +206,153 @@ std::string crearPagina(
 
 std::string paginaInicio()
 {
-    return crearPagina("Inicio");
+    return crearPagina(
+        "Inicio",
+
+        R"HTML(
+
+<section class="camera-grid">
+
+    <div class="camera-panel">
+        <h2>Cámara 1</h2>
+
+        <div class="camera-controls">
+            <button id="modo-1" class="camera-mode" onclick="alternarModo(1)">Captura</button>
+            <button id="accion-1" class="on" onclick="ejecutarCamara(1)">Iniciar</button>
+        </div>
+
+        <img id="imagen-1" class="camera-image" alt="Cámara 1">
+    </div>
+
+    <div class="camera-panel">
+        <h2>Cámara 2</h2>
+
+        <div class="camera-controls">
+            <button id="modo-2" class="camera-mode" onclick="alternarModo(2)">Captura</button>
+            <button id="accion-2" class="on" onclick="ejecutarCamara(2)">Iniciar</button>
+        </div>
+
+        <img id="imagen-2" class="camera-image" alt="Cámara 2">
+    </div>
+
+</section>
+
+<script>
+
+const modosCamara = {
+    1: "capture",
+    2: "capture"
+};
+
+const streamsActivos = {
+    1: false,
+    2: false
+};
+
+const capturas = {
+    1: null,
+    2: null
+};
+
+function limpiarImagen(numero)
+{
+    const imagen = document.getElementById(`imagen-${numero}`);
+
+    if (capturas[numero])
+    {
+        URL.revokeObjectURL(capturas[numero]);
+        capturas[numero] = null;
+    }
+
+    imagen.removeAttribute("src");
+    imagen.style.display = "none";
+}
+
+function detenerStream(numero)
+{
+    if (!streamsActivos[numero])
+        return;
+
+    streamsActivos[numero] = false;
+    limpiarImagen(numero);
+
+    const boton = document.getElementById(`accion-${numero}`);
+    boton.textContent = "Iniciar";
+    boton.className = "on";
+}
+
+function alternarModo(numero)
+{
+    detenerStream(numero);
+    limpiarImagen(numero);
+
+    modosCamara[numero] = modosCamara[numero] === "capture" ? "stream" : "capture";
+
+    const botonModo = document.getElementById(`modo-${numero}`);
+    botonModo.textContent = modosCamara[numero] === "capture" ? "Captura" : "Stream";
+}
+
+async function capturar(numero)
+{
+    const boton = document.getElementById(`accion-${numero}`);
+    const imagen = document.getElementById(`imagen-${numero}`);
+
+    boton.disabled = true;
+
+    try
+    {
+        const response = await fetch(`/capture/${numero}`, {cache: "no-store"});
+
+        if (!response.ok)
+            throw new Error();
+
+        const blob = await response.blob();
+
+        if (capturas[numero])
+            URL.revokeObjectURL(capturas[numero]);
+
+        capturas[numero] = URL.createObjectURL(blob);
+        imagen.src = capturas[numero];
+        imagen.style.display = "block";
+    }
+    catch
+    {
+        alert("No se pudo capturar la imagen.");
+    }
+
+    boton.disabled = false;
+}
+
+function iniciarStream(numero)
+{
+    const imagen = document.getElementById(`imagen-${numero}`);
+    const boton = document.getElementById(`accion-${numero}`);
+
+    streamsActivos[numero] = true;
+    imagen.src = `/stream/${numero}`;
+    imagen.style.display = "block";
+
+    boton.textContent = "Detener";
+    boton.className = "off";
+}
+
+function ejecutarCamara(numero)
+{
+    if (modosCamara[numero] === "capture")
+    {
+        capturar(numero);
+        return;
+    }
+
+    if (streamsActivos[numero])
+        detenerStream(numero);
+    else
+        iniciarStream(numero);
+}
+
+</script>
+
+)HTML");
 }
 
 std::string paginaConfiguracion()
