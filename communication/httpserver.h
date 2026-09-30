@@ -13,6 +13,8 @@ struct HttpRequest
     std::string method;
     std::string path;
     std::string query;
+
+    bool queryParam(const std::string& key, std::string& value) const;
 };
 
 struct HttpResponse
