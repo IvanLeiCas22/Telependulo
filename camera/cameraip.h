@@ -16,7 +16,7 @@ class CameraIp : public Camera
 public:
     explicit CameraIp(const IpCameraConfig& config);
 
-    bool capture(cv::Mat& frame) const override;
+    bool capture(cv::Mat& frame) override;
 
 private:
     IpCameraConfig config_;

@@ -7,7 +7,7 @@ class Camera
 {
 public:
     virtual ~Camera() = default;
-    virtual bool capture(cv::Mat& frame) const = 0;
+    virtual bool capture(cv::Mat& frame) = 0;
 };
 
 #endif // CAMERA_H

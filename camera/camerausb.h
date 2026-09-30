@@ -3,6 +3,8 @@
 
 #include "camera.h"
 
+#include <opencv2/videoio.hpp>
+
 struct UsbCameraConfig
 {
     int deviceIndex = 0;
@@ -17,11 +19,17 @@ class CameraUsb : public Camera
 public:
     explicit CameraUsb(const UsbCameraConfig& config);
 
-    bool capture(cv::Mat& frame) const override;
+    bool open();
+    bool read(cv::Mat& frame);
+    void close();
+    bool isOpen() const;
+
+    bool capture(cv::Mat& frame) override;
 
 private:
     UsbCameraConfig config_;
-    mutable bool contratoMostrado_ = false;
+    cv::VideoCapture camera_;
+    bool contratoMostrado_ = false;
 };
 
 #endif // CAMERAUSB_H

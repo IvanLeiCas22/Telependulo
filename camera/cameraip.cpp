@@ -319,7 +319,7 @@ CameraIp::CameraIp(const IpCameraConfig& config) : config_(config)
 {
 }
 
-bool CameraIp::capture(cv::Mat& frame) const
+bool CameraIp::capture(cv::Mat& frame)
 {
     frame.release();
 
