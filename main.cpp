@@ -7,6 +7,7 @@
 #include "web/pages.h"
 
 #include <iostream>
+#include <linux/videodev2.h>
 #include <mutex>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/videoio.hpp>
@@ -48,6 +49,87 @@ HttpResponse responderTodasLasLuces(Lighting& lighting, bool on)
         return HttpResponse::text("No se pudieron cambiar las luces.", 500);
 
     return HttpResponse::text("ok");
+}
+
+std::string escaparJson(const std::string& text)
+{
+    std::string result;
+
+    for (char c : text)
+    {
+        if (c == '"' || c == '\\') result += '\\';
+        if (c == '\n') result += "\\n";
+        else if (c == '\r') result += "\\r";
+        else if (c == '\t') result += "\\t";
+        else result += c;
+    }
+
+    return result;
+}
+
+const char* tipoControlV4l2(unsigned int type)
+{
+    switch (type)
+    {
+    case V4L2_CTRL_TYPE_INTEGER: return "integer";
+    case V4L2_CTRL_TYPE_BOOLEAN: return "boolean";
+    case V4L2_CTRL_TYPE_MENU: return "menu";
+    case V4L2_CTRL_TYPE_INTEGER_MENU: return "integer-menu";
+    default: return nullptr;
+    }
+}
+
+HttpResponse responderControlesCamara(CameraUsb& camera, std::mutex& cameraMutex)
+{
+    std::vector<V4l2Control> controls;
+    {
+        std::lock_guard<std::mutex> lock(cameraMutex);
+        controls = camera.getV4l2Controls();
+    }
+
+    std::string json = "[";
+    bool firstControl = true;
+
+    for (const auto& control : controls)
+    {
+        const char* type = tipoControlV4l2(control.type);
+        if (!type || !control.hasValue || control.readOnly)
+            continue;
+
+        if (!firstControl) json += ",";
+        firstControl = false;
+
+        json += "{";
+        json += "\"id\":" + std::to_string(control.id);
+        json += ",\"name\":\"" + escaparJson(control.name) + "\"";
+        json += ",\"type\":\"" + std::string(type) + "\"";
+        json += ",\"value\":" + std::to_string(control.value);
+        json += ",\"inactive\":" + std::string(control.inactive ? "true" : "false");
+
+        if (control.type == V4L2_CTRL_TYPE_INTEGER)
+        {
+            json += ",\"min\":" + std::to_string(control.min);
+            json += ",\"max\":" + std::to_string(control.max);
+            json += ",\"step\":" + std::to_string(control.step);
+        }
+
+        if (control.type == V4L2_CTRL_TYPE_MENU || control.type == V4L2_CTRL_TYPE_INTEGER_MENU)
+        {
+            json += ",\"options\":[";
+            for (std::size_t i = 0; i < control.menuItems.size(); ++i)
+            {
+                if (i > 0) json += ",";
+                json += "{\"value\":" + std::to_string(control.menuItems[i].value);
+                json += ",\"name\":\"" + escaparJson(control.menuItems[i].name) + "\"}";
+            }
+            json += "]";
+        }
+
+        json += "}";
+    }
+
+    json += "]";
+    return {200, "application/json; charset=utf-8", std::move(json)};
 }
 
 HttpResponse responderCaptura(Camera& camera, std::mutex& cameraMutex)
@@ -158,6 +240,11 @@ int main()
                {
                    return responderTodasLasLuces(lighting, false);
                });
+
+    server.get("/camera/1/controls", [&camera1, &camera1Mutex](const HttpRequest&)
+    {
+        return responderControlesCamara(camera1, camera1Mutex);
+    });
 
     server.get("/capture/1", [&camera1, &camera1Mutex](const HttpRequest&)      // Capturar y devolver la cámara USB
     {
