@@ -18,6 +18,9 @@ bool CameraUsb::capture(cv::Mat& frame) const
         return false;
     }
 
+    const int yuyv = cv::VideoWriter::fourcc('Y', 'U', 'Y', 'V');
+
+    camera.set(cv::CAP_PROP_FOURCC, yuyv);
     camera.set(cv::CAP_PROP_FRAME_WIDTH, config_.width);
     camera.set(cv::CAP_PROP_FRAME_HEIGHT, config_.height);
     camera.set(cv::CAP_PROP_FPS, config_.fps);
