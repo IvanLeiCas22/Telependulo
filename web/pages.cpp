@@ -503,7 +503,13 @@ async function cargarModosCamara(numero)
             resolucion.appendChild(option);
         }
 
-        resolucion.onchange = () => actualizarFps(numero);
+        resolucion.onchange = () => {
+            actualizarFps(numero);
+
+            if (fps.options.length === 1)
+                cambiarModoCamara(numero);
+        };
+
         fps.onchange = () => cambiarModoCamara(numero);
 
         resolucion.disabled = false;
