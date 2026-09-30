@@ -7,6 +7,7 @@
 #include "web/pages.h"
 
 #include <iostream>
+#include <limits>
 #include <linux/videodev2.h>
 #include <mutex>
 #include <opencv2/imgcodecs.hpp>
@@ -67,6 +68,73 @@ std::string escaparJson(const std::string& text)
     return result;
 }
 
+bool leerParametroQuery(const std::string& query, const std::string& key, std::string& value)
+{
+    std::size_t start = 0;
+
+    while (start < query.size())
+    {
+        std::size_t end = query.find('&', start);
+        if (end == std::string::npos)
+            end = query.size();
+
+        const std::string parameter = query.substr(start, end - start);
+        const std::size_t separator = parameter.find('=');
+
+        if (separator != std::string::npos && parameter.substr(0, separator) == key)
+        {
+            value = parameter.substr(separator + 1);
+            return true;
+        }
+
+        start = end + 1;
+    }
+
+    return false;
+}
+
+bool convertirIdControl(const std::string& text, unsigned int& value)
+{
+    try
+    {
+        std::size_t parsed = 0;
+        const unsigned long number = std::stoul(text, &parsed);
+
+        if (parsed != text.size() || number > std::numeric_limits<unsigned int>::max())
+            return false;
+
+        value = static_cast<unsigned int>(number);
+        return true;
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
+
+bool convertirValorControl(const std::string& text, int& value)
+{
+    try
+    {
+        std::size_t parsed = 0;
+        const long number = std::stol(text, &parsed);
+
+        if (parsed != text.size() ||
+            number < std::numeric_limits<int>::min() ||
+            number > std::numeric_limits<int>::max())
+        {
+            return false;
+        }
+
+        value = static_cast<int>(number);
+        return true;
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
+
 const char* tipoControlV4l2(unsigned int type)
 {
     switch (type)
@@ -77,6 +145,31 @@ const char* tipoControlV4l2(unsigned int type)
     case V4L2_CTRL_TYPE_INTEGER_MENU: return "integer-menu";
     default: return nullptr;
     }
+}
+
+HttpResponse responderCambioControlCamara(CameraUsb& camera, std::mutex& cameraMutex, const HttpRequest& request)
+{
+    std::string idText;
+    std::string valueText;
+
+    if (!leerParametroQuery(request.query, "id", idText) ||
+        !leerParametroQuery(request.query, "value", valueText))
+    {
+        return HttpResponse::text("Faltan parametros id o value.", 400);
+    }
+
+    unsigned int id = 0;
+    int value = 0;
+
+    if (!convertirIdControl(idText, id) || !convertirValorControl(valueText, value))
+        return HttpResponse::text("Parametros id o value invalidos.", 400);
+
+    std::lock_guard<std::mutex> lock(cameraMutex);
+
+    if (!camera.setV4l2Control(id, value))
+        return HttpResponse::text("No se pudo cambiar el control de la camara.", 500);
+
+    return HttpResponse::text("ok");
 }
 
 HttpResponse responderControlesCamara(CameraUsb& camera, std::mutex& cameraMutex)
@@ -244,6 +337,11 @@ int main()
     server.get("/camera/1/controls", [&camera1, &camera1Mutex](const HttpRequest&)
     {
         return responderControlesCamara(camera1, camera1Mutex);
+    });
+
+    server.put("/camera/1/control", [&camera1, &camera1Mutex](const HttpRequest& request)
+    {
+        return responderCambioControlCamara(camera1, camera1Mutex, request);
     });
 
     server.get("/capture/1", [&camera1, &camera1Mutex](const HttpRequest&)      // Capturar y devolver la cámara USB
