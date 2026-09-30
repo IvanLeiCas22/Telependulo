@@ -187,24 +187,16 @@ std::string paginaConfiguracion()
 
         <div>
             <div class="light-name">Luz 1</div>
+
             <div id="estado-1" class="estado">
                 Consultando...
             </div>
         </div>
 
-        <div class="controls">
-
-            <button class="on"
-                    onclick="cambiarLuz(1, true)">
-                Encender
-            </button>
-
-            <button class="off"
-                    onclick="cambiarLuz(1, false)">
-                Apagar
-            </button>
-
-        </div>
+        <button id="boton-1"
+                onclick="alternarLuz(1)">
+            ...
+        </button>
 
     </div>
 
@@ -213,38 +205,25 @@ std::string paginaConfiguracion()
 
         <div>
             <div class="light-name">Luz 2</div>
+
             <div id="estado-2" class="estado">
                 Consultando...
             </div>
         </div>
 
-        <div class="controls">
-
-            <button class="on"
-                    onclick="cambiarLuz(2, true)">
-                Encender
-            </button>
-
-            <button class="off"
-                    onclick="cambiarLuz(2, false)">
-                Apagar
-            </button>
-
-        </div>
+        <button id="boton-2"
+                onclick="alternarLuz(2)">
+            ...
+        </button>
 
     </div>
 
 
     <div class="all-controls">
 
-        <button class="on"
-                onclick="cambiarTodas(true)">
-            Encender todas
-        </button>
-
-        <button class="off"
-                onclick="cambiarTodas(false)">
-            Apagar todas
+        <button id="boton-todas"
+                onclick="alternarTodas()">
+            ...
         </button>
 
     </div>
@@ -254,28 +233,94 @@ std::string paginaConfiguracion()
 
 <script>
 
-function mostrarEstado(numero, encendida)
+const estados = {
+    1: null,
+    2: null
+};
+
+
+function actualizarInterfaz(numero, encendida)
 {
-    const elemento =
+    estados[numero] = encendida;
+
+    const estado =
         document.getElementById(`estado-${numero}`);
 
-    elemento.textContent =
+    const boton =
+        document.getElementById(`boton-${numero}`);
+
+
+    estado.textContent =
         encendida ? "Encendida" : "Apagada";
 
-    elemento.className =
+    estado.className =
         encendida
             ? "estado encendida"
             : "estado apagada";
+
+
+    boton.textContent =
+        encendida ? "Apagar" : "Encender";
+
+    boton.className =
+        encendida ? "off" : "on";
+
+
+    actualizarBotonTodas();
 }
 
 
 function mostrarError(numero)
 {
-    const elemento =
+    estados[numero] = null;
+
+    const estado =
         document.getElementById(`estado-${numero}`);
 
-    elemento.textContent = "No disponible";
-    elemento.className = "estado error";
+    const boton =
+        document.getElementById(`boton-${numero}`);
+
+
+    estado.textContent = "No disponible";
+    estado.className = "estado error";
+
+    boton.textContent = "No disponible";
+    boton.disabled = true;
+
+    actualizarBotonTodas();
+}
+
+
+function actualizarBotonTodas()
+{
+    const boton =
+        document.getElementById("boton-todas");
+
+
+    if (estados[1] === null ||
+        estados[2] === null)
+    {
+        boton.textContent = "No disponible";
+        boton.disabled = true;
+        return;
+    }
+
+
+    boton.disabled = false;
+
+    const todasEncendidas =
+        estados[1] && estados[2];
+
+
+    boton.textContent =
+        todasEncendidas
+            ? "Apagar todas"
+            : "Encender todas";
+
+    boton.className =
+        todasEncendidas
+            ? "off"
+            : "on";
 }
 
 
@@ -284,18 +329,27 @@ async function leerEstado(numero)
     try
     {
         const response =
-            await fetch(`/lighting/${numero}`,
-            {
-                cache: "no-store"
-            });
+            await fetch(
+                `/lighting/${numero}`,
+                {
+                    cache: "no-store"
+                });
 
         if (!response.ok)
             throw new Error();
 
+
         const estado =
             (await response.text()).trim();
 
-        mostrarEstado(
+
+        const boton =
+            document.getElementById(`boton-${numero}`);
+
+        boton.disabled = false;
+
+
+        actualizarInterfaz(
             numero,
             estado === "on");
     }
@@ -306,13 +360,27 @@ async function leerEstado(numero)
 }
 
 
-async function cambiarLuz(numero, encendida)
+async function alternarLuz(numero)
 {
+    if (estados[numero] === null)
+        return;
+
+
+    const nuevoEstado =
+        !estados[numero];
+
     const accion =
-        encendida ? "on" : "off";
+        nuevoEstado ? "on" : "off";
+
+    const boton =
+        document.getElementById(`boton-${numero}`);
+
 
     try
     {
+        boton.disabled = true;
+
+
         const response =
             await fetch(
                 `/lighting/${numero}/${accion}`,
@@ -323,24 +391,53 @@ async function cambiarLuz(numero, encendida)
         if (!response.ok)
             throw new Error();
 
-        mostrarEstado(numero, encendida);
+
+        boton.disabled = false;
+
+        actualizarInterfaz(
+            numero,
+            nuevoEstado);
     }
     catch
     {
-        alert("No se pudo cambiar el estado de la luz.");
+        boton.disabled = false;
+
+        alert(
+            "No se pudo cambiar el estado de la luz."
+        );
 
         leerEstado(numero);
     }
 }
 
 
-async function cambiarTodas(encendidas)
+async function alternarTodas()
 {
+    if (estados[1] === null ||
+        estados[2] === null)
+    {
+        return;
+    }
+
+
+    const todasEncendidas =
+        estados[1] && estados[2];
+
+    const nuevoEstado =
+        !todasEncendidas;
+
     const accion =
-        encendidas ? "on" : "off";
+        nuevoEstado ? "on" : "off";
+
+    const boton =
+        document.getElementById("boton-todas");
+
 
     try
     {
+        boton.disabled = true;
+
+
         const response =
             await fetch(
                 `/lighting/all/${accion}`,
@@ -351,12 +448,24 @@ async function cambiarTodas(encendidas)
         if (!response.ok)
             throw new Error();
 
-        mostrarEstado(1, encendidas);
-        mostrarEstado(2, encendidas);
+
+        boton.disabled = false;
+
+        actualizarInterfaz(
+            1,
+            nuevoEstado);
+
+        actualizarInterfaz(
+            2,
+            nuevoEstado);
     }
     catch
     {
-        alert("No se pudo cambiar el estado de las luces.");
+        boton.disabled = false;
+
+        alert(
+            "No se pudo cambiar el estado de las luces."
+        );
 
         leerEstado(1);
         leerEstado(2);
