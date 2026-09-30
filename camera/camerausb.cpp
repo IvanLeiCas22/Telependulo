@@ -26,6 +26,28 @@ const char* controlTypeName(__u32 type)
     }
 }
 
+bool readControlValue(int fd, const v4l2_query_ext_ctrl& control, int& value)
+{
+    if (control.flags & V4L2_CTRL_FLAG_WRITE_ONLY)
+        return false;
+
+    if (control.type == V4L2_CTRL_TYPE_BUTTON ||
+        control.type == V4L2_CTRL_TYPE_INTEGER64 ||
+        control.type == V4L2_CTRL_TYPE_STRING)
+    {
+        return false;
+    }
+
+    v4l2_control current{};
+    current.id = control.id;
+
+    if (ioctl(fd, VIDIOC_G_CTRL, &current) < 0)
+        return false;
+
+    value = current.value;
+    return true;
+}
+
 void printMenu(int fd, const v4l2_query_ext_ctrl& control)
 {
     for (__s64 index = control.minimum; index <= control.maximum; ++index)
@@ -170,10 +192,17 @@ void CameraUsb::printV4l2Controls() const
         {
             found = true;
 
+            int value = 0;
+            const bool hasValue = readControlValue(fd, control, value);
+
             std::cout << "  " << reinterpret_cast<const char*>(control.name)
                       << " | id=0x" << std::hex << control.id << std::dec
-                      << " | " << controlTypeName(control.type)
-                      << " | min=" << control.minimum
+                      << " | " << controlTypeName(control.type);
+
+            if (hasValue)
+                std::cout << " | value=" << value;
+
+            std::cout << " | min=" << control.minimum
                       << " max=" << control.maximum
                       << " step=" << control.step
                       << " default=" << control.default_value;
