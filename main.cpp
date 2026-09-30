@@ -1,5 +1,4 @@
 #include "camera/camera.h"
-#include "camera/cameraip.h"
 #include "camera/camerausb.h"
 #include "communication/httpserver.h"
 #include "lighting/lighting.h"
@@ -330,10 +329,9 @@ int main()
     CameraUsb camera1(usbConfig);
     std::mutex camera1Mutex;
 
-    IpCameraConfig ipConfig;
-    ipConfig.url = "http://192.168.10.119:8080/camera1/photo.jpg";
-    ipConfig.timeoutMs = 10000;
-    CameraIp camera2(ipConfig);
+    UsbCameraConfig usbConfig2 = usbConfig;
+    usbConfig2.deviceIndex = 2;
+    CameraUsb camera2(usbConfig2);
     std::mutex camera2Mutex;
 
     GpioLightingConfig lightingConfig;
@@ -405,14 +403,36 @@ int main()
         return responderCambioModoCamara(camera1, camera1Mutex, request);
     });
 
-    server.get("/capture/1", [&camera1, &camera1Mutex](const HttpRequest&)      // Capturar y devolver la cámara USB
+    server.get("/camera/2/controls", [&camera2, &camera2Mutex](const HttpRequest&)
+    {
+        return responderControlesCamara(camera2, camera2Mutex);
+    });
+
+    server.get("/camera/2/modes", [&camera2, &camera2Mutex](const HttpRequest&)
+    {
+        return responderModosCamara(camera2, camera2Mutex);
+    });
+
+    server.put("/camera/2/control", [&camera2, &camera2Mutex](const HttpRequest& request)
+    {
+        return responderCambioControlCamara(camera2, camera2Mutex, request);
+    });
+
+    server.put("/camera/2/mode", [&camera2, &camera2Mutex](const HttpRequest& request)
+    {
+        return responderCambioModoCamara(camera2, camera2Mutex, request);
+    });
+
+    server.get("/capture/1", [&camera1, &camera1Mutex](const HttpRequest&)
     {
         return responderCaptura(camera1, camera1Mutex);
     });
-    server.get("/capture/2", [&camera2, &camera2Mutex](const HttpRequest&)      // Capturar y devolver la cámara IP
+
+    server.get("/capture/2", [&camera2, &camera2Mutex](const HttpRequest&)
     {
         return responderCaptura(camera2, camera2Mutex);
     });
+
     server.stream("/stream/1",
                   [&camera1, &camera1Mutex]()
                   {
@@ -428,10 +448,22 @@ int main()
                       std::lock_guard<std::mutex> lock(camera1Mutex);
                       camera1.close();
                   });
-    server.stream("/stream/2", [&camera2, &camera2Mutex](std::vector<unsigned char>& jpeg)
-    {
-        return capturarJpeg(camera2, camera2Mutex, jpeg);
-    });
+
+    server.stream("/stream/2",
+                  [&camera2, &camera2Mutex]()
+                  {
+                      std::lock_guard<std::mutex> lock(camera2Mutex);
+                      return camera2.open();
+                  },
+                  [&camera2, &camera2Mutex](std::vector<unsigned char>& jpeg)
+                  {
+                      return leerJpeg(camera2, camera2Mutex, jpeg);
+                  },
+                  [&camera2, &camera2Mutex]()
+                  {
+                      std::lock_guard<std::mutex> lock(camera2Mutex);
+                      camera2.close();
+                  });
 
     if (!server.run())                                          // Arrancar el server
     {

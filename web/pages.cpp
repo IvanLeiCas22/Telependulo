@@ -287,6 +287,23 @@ std::string paginaInicio()
         </div>
 
         <img id="imagen-2" class="camera-image" alt="Cámara 2">
+
+        <div class="camera-settings">
+            <h3>Configuración</h3>
+
+            <div class="v4l2-row">
+                <span>Resolución</span>
+                <select id="resolucion-2" class="v4l2-input"></select>
+            </div>
+
+            <div class="v4l2-row">
+                <span>FPS</span>
+                <select id="fps-2" class="v4l2-input"></select>
+            </div>
+
+            <div id="estado-modos-2" class="estado">Consultando modos...</div>
+            <div id="controles-camara-2"></div>
+        </div>
     </div>
 
 </section>
@@ -422,7 +439,8 @@ function ejecutarCamara(numero)
 }
 
 const modosDisponibles = {
-    1: []
+    1: [],
+    2: []
 };
 
 function actualizarFps(numero)
@@ -636,6 +654,8 @@ async function cargarControlesCamara(numero)
 
 cargarModosCamara(1);
 cargarControlesCamara(1);
+cargarModosCamara(2);
+cargarControlesCamara(2);
 
 </script>
 
