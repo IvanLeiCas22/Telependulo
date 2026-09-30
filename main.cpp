@@ -7,6 +7,7 @@
 #include "web/pages.h"
 
 #include <iostream>
+#include <linux/videodev2.h>
 #include <mutex>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/videoio.hpp>
@@ -103,6 +104,16 @@ int main()
     usbConfig.fourcc = cv::VideoWriter::fourcc('Y', 'U', 'Y', 'V');
     CameraUsb camera1(usbConfig);
     camera1.printV4l2Controls();
+
+    std::cout << "[V4L2] Prueba: Auto Exposure -> Manual Mode\n";
+    if (camera1.setV4l2Control(V4L2_CID_EXPOSURE_AUTO, V4L2_EXPOSURE_MANUAL))
+    {
+        camera1.printV4l2Controls();
+
+        if (!camera1.setV4l2Control(V4L2_CID_EXPOSURE_AUTO, V4L2_EXPOSURE_APERTURE_PRIORITY))
+            std::cerr << "[V4L2] No se pudo restaurar Auto Exposure.\n";
+    }
+
     std::mutex camera1Mutex;
 
     IpCameraConfig ipConfig;
