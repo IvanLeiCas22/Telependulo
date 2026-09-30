@@ -154,8 +154,15 @@ bool HttpServer::receiveRequest(int clientSocket, HttpRequest& request)
     }
 
     std::istringstream firstLine(data.substr(0, data.find("\r\n")));
+    std::string target;
     std::string httpVersion;
-    firstLine >> request.method >> request.path >> httpVersion;
+    firstLine >> request.method >> target >> httpVersion;
+
+    const std::size_t queryStart = target.find('?');
+    request.path = target.substr(0, queryStart);
+
+    if (queryStart != std::string::npos)
+        request.query = target.substr(queryStart + 1);
 
     return !request.method.empty() && !request.path.empty() && httpVersion.rfind("HTTP/", 0) == 0;
 }
