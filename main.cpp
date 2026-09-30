@@ -147,6 +147,32 @@ HttpResponse responderCambioControlCamara(CameraUsb& camera, std::mutex& cameraM
     return HttpResponse::text("ok");
 }
 
+HttpResponse responderModosCamara(CameraUsb& camera, std::mutex& cameraMutex)
+{
+    std::vector<CameraMode> modes;
+    {
+        std::lock_guard<std::mutex> lock(cameraMutex);
+
+        if (!camera.getAvailableModes(modes))
+            return HttpResponse::text("No se pudieron consultar los modos de la cámara.", 500);
+    }
+
+    std::string json = "[";
+    for (std::size_t i = 0; i < modes.size(); ++i)
+    {
+        if (i > 0) json += ",";
+
+        json += "{";
+        json += "\"width\":" + std::to_string(modes[i].width);
+        json += ",\"height\":" + std::to_string(modes[i].height);
+        json += ",\"fps\":" + std::to_string(modes[i].fps);
+        json += "}";
+    }
+    json += "]";
+
+    return {200, "application/json; charset=utf-8", std::move(json)};
+}
+
 HttpResponse responderControlesCamara(CameraUsb& camera, std::mutex& cameraMutex)
 {
     std::vector<V4l2Control> controls;
@@ -314,6 +340,11 @@ int main()
     server.get("/camera/1/controls", [&camera1, &camera1Mutex](const HttpRequest&)
     {
         return responderControlesCamara(camera1, camera1Mutex);
+    });
+
+    server.get("/camera/1/modes", [&camera1, &camera1Mutex](const HttpRequest&)
+    {
+        return responderModosCamara(camera1, camera1Mutex);
     });
 
     server.put("/camera/1/control", [&camera1, &camera1Mutex](const HttpRequest& request)

@@ -153,6 +153,71 @@ void CameraUsb::close()
         camera_.release();
 }
 
+bool CameraUsb::getAvailableModes(std::vector<CameraMode>& modes) const
+{
+    modes.clear();
+
+    const std::string device = "/dev/video" + std::to_string(config_.deviceIndex);
+    const int fd = ::open(device.c_str(), O_RDWR);
+
+    if (fd < 0)
+    {
+        std::cerr << "[V4L2] No se pudo abrir " << device << " para consultar modos.\n";
+        return false;
+    }
+
+    v4l2_frmsizeenum size{};
+    size.pixel_format = V4L2_PIX_FMT_YUYV;
+
+    while (ioctl(fd, VIDIOC_ENUM_FRAMESIZES, &size) == 0)
+    {
+        if (size.type == V4L2_FRMSIZE_TYPE_DISCRETE)
+        {
+            v4l2_frmivalenum interval{};
+            interval.pixel_format = V4L2_PIX_FMT_YUYV;
+            interval.width = size.discrete.width;
+            interval.height = size.discrete.height;
+
+            while (ioctl(fd, VIDIOC_ENUM_FRAMEINTERVALS, &interval) == 0)
+            {
+                if (interval.type == V4L2_FRMIVAL_TYPE_DISCRETE &&
+                    interval.discrete.numerator != 0)
+                {
+                    CameraMode mode;
+                    mode.width = static_cast<int>(size.discrete.width);
+                    mode.height = static_cast<int>(size.discrete.height);
+                    mode.fps = static_cast<double>(interval.discrete.denominator) /
+                               interval.discrete.numerator;
+                    modes.push_back(mode);
+                }
+                else
+                {
+                    std::cerr << "[V4L2] Se encontro un intervalo de FPS no discreto para "
+                              << size.discrete.width << "x" << size.discrete.height
+                              << "; no se expone como modo.\n";
+                    break;
+                }
+
+                ++interval.index;
+            }
+        }
+        else
+        {
+            std::cerr << "[V4L2] Se encontro un rango de resoluciones no discreto; "
+                      << "no se expone como modo.\n";
+        }
+
+        ++size.index;
+    }
+
+    const bool success = errno == EINVAL;
+    if (!success)
+        std::cerr << "[V4L2] La enumeracion de modos termino con un error.\n";
+
+    ::close(fd);
+    return success;
+}
+
 bool CameraUsb::getV4l2Controls(std::vector<V4l2Control>& controls) const
 {
     controls.clear();
