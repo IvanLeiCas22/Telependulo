@@ -282,7 +282,7 @@ std::string paginaInicio()
                 <img id="imagen-1" class="camera-image" alt="Cámara 1">
             </div>
 
-            <div class="camera-settings">
+            <div id="configuracion-camara-1" class="camera-settings">
                 <h3>Configuración</h3>
 
                 <div class="v4l2-row">
@@ -314,7 +314,7 @@ std::string paginaInicio()
                 <img id="imagen-2" class="camera-image" alt="Cámara 2">
             </div>
 
-            <div class="camera-settings">
+            <div id="configuracion-camara-2" class="camera-settings">
                 <h3>Configuración</h3>
 
                 <div class="v4l2-row">
@@ -524,6 +524,7 @@ async function cambiarModoCamara(numero)
 
 async function cargarModosCamara(numero)
 {
+    const configuracion = document.getElementById(`configuracion-camara-${numero}`);
     const estado = document.getElementById(`estado-modos-${numero}`);
     const resolucion = document.getElementById(`resolucion-${numero}`);
     const fps = document.getElementById(`fps-${numero}`);
@@ -532,8 +533,16 @@ async function cargarModosCamara(numero)
     {
         const response = await fetch(`/camera/${numero}/modes`, {cache: "no-store"});
 
+        if (response.status === 404)
+        {
+            configuracion.style.display = "none";
+            return false;
+        }
+
         if (!response.ok)
             throw new Error();
+
+        configuracion.style.display = "block";
 
         modosDisponibles[numero] = await response.json();
         const resoluciones = [];
@@ -567,13 +576,16 @@ async function cargarModosCamara(numero)
         fps.disabled = false;
         actualizarFps(numero);
         estado.style.display = "none";
+        return true;
     }
     catch
     {
+        configuracion.style.display = "block";
         estado.textContent = "No se pudieron consultar los modos.";
         estado.className = "estado error";
         resolucion.disabled = true;
         fps.disabled = true;
+        return false;
     }
 }
 
@@ -642,7 +654,6 @@ async function cambiarControlCamara(numero, control, entrada)
 
 async function cargarControlesCamara(numero)
 {
-    const estado = document.getElementById(`estado-modos-${numero}`);
     const contenedor = document.getElementById(`controles-camara-${numero}`);
 
     try
@@ -685,10 +696,14 @@ async function cargarControlesCamara(numero)
     }
 }
 
-cargarModosCamara(1);
-cargarControlesCamara(1);
-cargarModosCamara(2);
-cargarControlesCamara(2);
+async function cargarConfiguracionCamara(numero)
+{
+    if (await cargarModosCamara(numero))
+        await cargarControlesCamara(numero);
+}
+
+cargarConfiguracionCamara(1);
+cargarConfiguracionCamara(2);
 
 </script>
 

@@ -1,4 +1,5 @@
 #include "camera/camera.h"
+#include "camera/cameraip.h"
 #include "camera/camerausb.h"
 #include "communication/httpserver.h"
 #include "lighting/lighting.h"
@@ -9,6 +10,7 @@
 #include <iostream>
 #include <limits>
 #include <linux/videodev2.h>
+#include <memory>
 #include <mutex>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/videoio.hpp>
@@ -292,20 +294,7 @@ HttpResponse responderCaptura(Camera& camera, std::mutex& cameraMutex)
     return {200, "image/png", std::move(body)};
 }
 
-bool capturarJpeg(Camera& camera, std::mutex& cameraMutex, std::vector<unsigned char>& jpeg)
-{
-    cv::Mat frame;
-    {
-        std::lock_guard<std::mutex> lock(cameraMutex);
-        if (!camera.capture(frame))
-            return false;
-    }
-
-    jpeg.clear();
-    return cv::imencode(".jpg", frame, jpeg);
-}
-
-bool leerJpeg(CameraUsb& camera, std::mutex& cameraMutex, std::vector<unsigned char>& jpeg)
+bool leerJpeg(Camera& camera, std::mutex& cameraMutex, std::vector<unsigned char>& jpeg)
 {
     cv::Mat frame;
     {
@@ -318,6 +307,78 @@ bool leerJpeg(CameraUsb& camera, std::mutex& cameraMutex, std::vector<unsigned c
     return cv::imencode(".jpg", frame, jpeg);
 }
 
+struct CameraSetup
+{
+    std::unique_ptr<Camera> camera;
+    CameraUsb* usb = nullptr;
+};
+
+CameraSetup crearCamaraUsb(const UsbCameraConfig& config)
+{
+    auto camera = std::make_unique<CameraUsb>(config);
+    CameraUsb* usb = camera.get();
+
+    return {std::move(camera), usb};
+}
+
+CameraSetup crearCamaraIp(const IpCameraConfig& config)
+{
+    return {std::make_unique<CameraIp>(config), nullptr};
+}
+
+void registrarCamara(HttpServer& server, int numero, Camera& camera, std::mutex& cameraMutex)
+{
+    const std::string id = std::to_string(numero);
+
+    server.get("/capture/" + id, [&camera, &cameraMutex](const HttpRequest&)
+    {
+        return responderCaptura(camera, cameraMutex);
+    });
+
+    server.stream("/stream/" + id,
+                  [&camera, &cameraMutex]()
+                  {
+                      std::lock_guard<std::mutex> lock(cameraMutex);
+                      return camera.open();
+                  },
+                  [&camera, &cameraMutex](std::vector<unsigned char>& jpeg)
+                  {
+                      return leerJpeg(camera, cameraMutex, jpeg);
+                  },
+                  [&camera, &cameraMutex]()
+                  {
+                      std::lock_guard<std::mutex> lock(cameraMutex);
+                      camera.close();
+                  });
+}
+
+void registrarConfiguracionUsb(HttpServer& server, int numero, CameraUsb& camera,
+                               std::mutex& cameraMutex)
+{
+    const std::string id = std::to_string(numero);
+    const std::string base = "/camera/" + id;
+
+    server.get(base + "/controls", [&camera, &cameraMutex](const HttpRequest&)
+    {
+        return responderControlesCamara(camera, cameraMutex);
+    });
+
+    server.get(base + "/modes", [&camera, &cameraMutex](const HttpRequest&)
+    {
+        return responderModosCamara(camera, cameraMutex);
+    });
+
+    server.put(base + "/control", [&camera, &cameraMutex](const HttpRequest& request)
+    {
+        return responderCambioControlCamara(camera, cameraMutex, request);
+    });
+
+    server.put(base + "/mode", [&camera, &cameraMutex](const HttpRequest& request)
+    {
+        return responderCambioModoCamara(camera, cameraMutex, request);
+    });
+}
+
 int main()
 {
     UsbCameraConfig usbConfig;
@@ -326,12 +387,12 @@ int main()
     usbConfig.height = 1080;
     usbConfig.fps = 5;
     usbConfig.fourcc = cv::VideoWriter::fourcc('Y', 'U', 'Y', 'V');
-    CameraUsb camera1(usbConfig);
+    CameraSetup camera1 = crearCamaraUsb(usbConfig);
     std::mutex camera1Mutex;
 
     UsbCameraConfig usbConfig2 = usbConfig;
     usbConfig2.deviceIndex = 2;
-    CameraUsb camera2(usbConfig2);
+    CameraSetup camera2 = crearCamaraUsb(usbConfig2);
     std::mutex camera2Mutex;
 
     GpioLightingConfig lightingConfig;
@@ -383,87 +444,14 @@ int main()
                    return responderTodasLasLuces(lighting, false);
                });
 
-    server.get("/camera/1/controls", [&camera1, &camera1Mutex](const HttpRequest&)
-    {
-        return responderControlesCamara(camera1, camera1Mutex);
-    });
+    registrarCamara(server, 1, *camera1.camera, camera1Mutex);
+    registrarCamara(server, 2, *camera2.camera, camera2Mutex);
 
-    server.get("/camera/1/modes", [&camera1, &camera1Mutex](const HttpRequest&)
-    {
-        return responderModosCamara(camera1, camera1Mutex);
-    });
+    if (camera1.usb)
+        registrarConfiguracionUsb(server, 1, *camera1.usb, camera1Mutex);
 
-    server.put("/camera/1/control", [&camera1, &camera1Mutex](const HttpRequest& request)
-    {
-        return responderCambioControlCamara(camera1, camera1Mutex, request);
-    });
-
-    server.put("/camera/1/mode", [&camera1, &camera1Mutex](const HttpRequest& request)
-    {
-        return responderCambioModoCamara(camera1, camera1Mutex, request);
-    });
-
-    server.get("/camera/2/controls", [&camera2, &camera2Mutex](const HttpRequest&)
-    {
-        return responderControlesCamara(camera2, camera2Mutex);
-    });
-
-    server.get("/camera/2/modes", [&camera2, &camera2Mutex](const HttpRequest&)
-    {
-        return responderModosCamara(camera2, camera2Mutex);
-    });
-
-    server.put("/camera/2/control", [&camera2, &camera2Mutex](const HttpRequest& request)
-    {
-        return responderCambioControlCamara(camera2, camera2Mutex, request);
-    });
-
-    server.put("/camera/2/mode", [&camera2, &camera2Mutex](const HttpRequest& request)
-    {
-        return responderCambioModoCamara(camera2, camera2Mutex, request);
-    });
-
-    server.get("/capture/1", [&camera1, &camera1Mutex](const HttpRequest&)
-    {
-        return responderCaptura(camera1, camera1Mutex);
-    });
-
-    server.get("/capture/2", [&camera2, &camera2Mutex](const HttpRequest&)
-    {
-        return responderCaptura(camera2, camera2Mutex);
-    });
-
-    server.stream("/stream/1",
-                  [&camera1, &camera1Mutex]()
-                  {
-                      std::lock_guard<std::mutex> lock(camera1Mutex);
-                      return camera1.open();
-                  },
-                  [&camera1, &camera1Mutex](std::vector<unsigned char>& jpeg)
-                  {
-                      return leerJpeg(camera1, camera1Mutex, jpeg);
-                  },
-                  [&camera1, &camera1Mutex]()
-                  {
-                      std::lock_guard<std::mutex> lock(camera1Mutex);
-                      camera1.close();
-                  });
-
-    server.stream("/stream/2",
-                  [&camera2, &camera2Mutex]()
-                  {
-                      std::lock_guard<std::mutex> lock(camera2Mutex);
-                      return camera2.open();
-                  },
-                  [&camera2, &camera2Mutex](std::vector<unsigned char>& jpeg)
-                  {
-                      return leerJpeg(camera2, camera2Mutex, jpeg);
-                  },
-                  [&camera2, &camera2Mutex]()
-                  {
-                      std::lock_guard<std::mutex> lock(camera2Mutex);
-                      camera2.close();
-                  });
+    if (camera2.usb)
+        registrarConfiguracionUsb(server, 2, *camera2.usb, camera2Mutex);
 
     if (!server.run())                                          // Arrancar el server
     {

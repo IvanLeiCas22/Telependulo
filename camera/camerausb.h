@@ -50,9 +50,9 @@ class CameraUsb : public Camera
 public:
     explicit CameraUsb(const UsbCameraConfig& config);
 
-    bool open();
-    bool read(cv::Mat& frame);
-    void close();
+    bool open() override;
+    bool read(cv::Mat& frame) override;
+    void close() override;
 
     bool getAvailableModes(std::vector<CameraMode>& modes) const;
     bool setMode(int width, int height, double fps);
