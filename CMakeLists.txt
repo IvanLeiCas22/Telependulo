@@ -38,6 +38,12 @@ target_include_directories(
     ${GPIOD_INCLUDE_DIR}
 )
 
+target_compile_definitions(
+    Telependulo
+    PRIVATE
+    TELEPENDULO_PROJECT_ROOT="${CMAKE_SOURCE_DIR}"
+)
+
 target_link_libraries(
     Telependulo
     PRIVATE

@@ -7,6 +7,8 @@
 #include "web/pages.h"
 
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <limits>
 #include <linux/videodev2.h>
@@ -277,18 +279,58 @@ HttpResponse responderControlesCamara(CameraUsb& camera, std::mutex& cameraMutex
     return {200, "application/json; charset=utf-8", std::move(json)};
 }
 
-HttpResponse responderCaptura(Camera& camera, std::mutex& cameraMutex)
+bool guardarCaptura(const std::vector<unsigned char>& buffer, int numero)
 {
-    cv::Mat frame;
+    namespace fs = std::filesystem;
+
+    const fs::path imagesDir = fs::path(TELEPENDULO_PROJECT_ROOT) / "images";
+    const fs::path finalPath = imagesDir / ("camera" + std::to_string(numero) + ".png");
+    const fs::path tempPath = imagesDir / ("camera" + std::to_string(numero) + ".tmp");
+
+    std::ofstream file(tempPath, std::ios::binary | std::ios::trunc);
+    if (!file)
+        return false;
+
+    file.write(reinterpret_cast<const char*>(buffer.data()),
+               static_cast<std::streamsize>(buffer.size()));
+    file.close();
+
+    if (!file)
     {
-        std::lock_guard<std::mutex> lock(cameraMutex);
-        if (!camera.capture(frame))
-            return HttpResponse::text("No se pudo capturar la imagen.", 500);
+        std::error_code error;
+        fs::remove(tempPath, error);
+        return false;
     }
 
+    std::error_code error;
+    fs::rename(tempPath, finalPath, error);
+
+    if (error)
+    {
+        fs::remove(tempPath, error);
+        return false;
+    }
+
+    return true;
+}
+
+HttpResponse responderCaptura(Camera& camera, std::mutex& cameraMutex, int numero)
+{
+    cv::Mat frame;
     std::vector<unsigned char> buffer;
-    if (!cv::imencode(".png", frame, buffer))
-        return HttpResponse::text("No se pudo codificar la imagen.", 500);
+
+    {
+        std::lock_guard<std::mutex> lock(cameraMutex);
+
+        if (!camera.capture(frame))
+            return HttpResponse::text("No se pudo capturar la imagen.", 500);
+
+        if (!cv::imencode(".png", frame, buffer))
+            return HttpResponse::text("No se pudo codificar la imagen.", 500);
+
+        if (!guardarCaptura(buffer, numero))
+            return HttpResponse::text("No se pudo guardar la captura.", 500);
+    }
 
     std::string body(reinterpret_cast<const char*>(buffer.data()), buffer.size());
     return {200, "image/png", std::move(body)};
@@ -330,9 +372,9 @@ void registrarCamara(HttpServer& server, int numero, Camera& camera, std::mutex&
 {
     const std::string id = std::to_string(numero);
 
-    server.get("/capture/" + id, [&camera, &cameraMutex](const HttpRequest&)
+    server.get("/capture/" + id, [&camera, &cameraMutex, numero](const HttpRequest&)
     {
-        return responderCaptura(camera, cameraMutex);
+        return responderCaptura(camera, cameraMutex, numero);
     });
 
     server.stream("/stream/" + id,
@@ -394,6 +436,18 @@ int main()
     usbConfig2.deviceIndex = 2;
     CameraSetup camera2 = crearCamaraUsb(usbConfig2);
     std::mutex camera2Mutex;
+
+    namespace fs = std::filesystem;
+    const fs::path imagesDir = fs::path(TELEPENDULO_PROJECT_ROOT) / "images";
+    std::error_code imagesError;
+
+    fs::create_directories(imagesDir, imagesError);
+    if (imagesError)
+    {
+        std::cerr << "No se pudo crear la carpeta de imagenes: "
+                  << imagesDir << "\n";
+        return 1;
+    }
 
     GpioLightingConfig lightingConfig;
     lightingConfig.chipPath = "/dev/gpiochip0";
