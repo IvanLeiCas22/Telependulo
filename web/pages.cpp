@@ -215,6 +215,9 @@ std::string crearPagina(
 
         .camera-settings {
             margin-top: 18px;
+            max-height: calc(100vh - 520px);
+            overflow-y: auto;
+            padding-right: 4px;
         }
 
         .camera-settings h3 {
