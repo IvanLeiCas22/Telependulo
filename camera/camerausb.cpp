@@ -85,9 +85,23 @@ bool CameraUsb::open()
     camera_.set(cv::CAP_PROP_FRAME_HEIGHT, config_.height);
     camera_.set(cv::CAP_PROP_FPS, config_.fps);
 
-    double actualFps = camera_.get(cv::CAP_PROP_FPS);
-    if (actualFps <= 0)
-        actualFps = config_.fps;
+    const int actualFourcc = static_cast<int>(camera_.get(cv::CAP_PROP_FOURCC));
+    const double actualWidth = camera_.get(cv::CAP_PROP_FRAME_WIDTH);
+    const double actualHeight = camera_.get(cv::CAP_PROP_FRAME_HEIGHT);
+    const double actualFps = camera_.get(cv::CAP_PROP_FPS);
+
+    const bool contractApplied =
+        actualFourcc == config_.fourcc &&
+        std::abs(actualWidth - config_.width) < 0.5 &&
+        std::abs(actualHeight - config_.height) < 0.5 &&
+        std::abs(actualFps - config_.fps) < 0.001;
+
+    if (!contractApplied)
+    {
+        std::cerr << "[CameraUsb] La camara no aplico el modo solicitado.\n";
+        camera_.release();
+        return false;
+    }
 
     const int warmupFrames = static_cast<int>(std::ceil(actualFps));
 
@@ -279,19 +293,8 @@ bool CameraUsb::setMode(int width, int height, double fps)
 
     if (open())
     {
-        const bool modeApplied =
-            std::abs(camera_.get(cv::CAP_PROP_FRAME_WIDTH) - width) < 0.5 &&
-            std::abs(camera_.get(cv::CAP_PROP_FRAME_HEIGHT) - height) < 0.5 &&
-            std::abs(camera_.get(cv::CAP_PROP_FPS) - fps) < 0.001;
-
-        if (modeApplied)
-        {
-            users_ = oldUsers;
-            return true;
-        }
-
-        camera_.release();
-        users_ = 0;
+        users_ = oldUsers;
+        return true;
     }
 
     config_ = oldConfig;

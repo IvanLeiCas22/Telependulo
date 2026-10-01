@@ -497,6 +497,9 @@ async function cambiarModoCamara(numero)
 
     const [width, height] = resolucion.value.split("x");
 
+    resolucion.disabled = true;
+    fps.disabled = true;
+
     try
     {
         const response = await fetch(
@@ -506,11 +509,16 @@ async function cambiarModoCamara(numero)
 
         if (!response.ok)
             throw new Error();
+
+        await cargarControlesCamara(numero);
+        resolucion.disabled = false;
+        fps.disabled = false;
     }
     catch
     {
         alert("No se pudo cambiar el modo de la cámara.");
         await cargarModosCamara(numero);
+        await cargarControlesCamara(numero);
     }
 }
 
