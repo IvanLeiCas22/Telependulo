@@ -3,7 +3,7 @@
 
 #include <string>
 
-std::string paginaInicio();
+std::string paginaCamaras();
 std::string paginaConfiguracion();
 
 #endif // PAGES_H

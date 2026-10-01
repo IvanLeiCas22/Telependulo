@@ -22,7 +22,7 @@
 
 HttpResponse responderInicio(const HttpRequest& request)
 {
-    return HttpResponse::html(paginaInicio());
+    return HttpResponse::html(paginaCamaras());
 }
 
 HttpResponse responderConfiguracion(const HttpRequest& request)

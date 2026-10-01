@@ -239,8 +239,8 @@ std::string crearPagina(
     <nav class="sidebar">
         <h2>Telepéndulo</h2>
 
-        <a href="/">Inicio</a>
-        <a href="/config">Configuración</a>
+        <a href="/">Camaras</a>
+        <a href="/config">Iluminación</a>
     </nav>
 
     <main class="content">
@@ -260,10 +260,10 @@ std::string crearPagina(
 
 }
 
-std::string paginaInicio()
+std::string paginaCamaras()
 {
     return crearPagina(
-        "Inicio",
+        "Camaras",
 
         R"HTML(
 
@@ -713,7 +713,7 @@ cargarConfiguracionCamara(2);
 std::string paginaConfiguracion()
 {
     return crearPagina(
-        "Configuración",
+        "Iluminación",
 
         R"HTML(
 
