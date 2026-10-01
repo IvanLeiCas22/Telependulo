@@ -198,6 +198,17 @@ std::string crearPagina(
             color: #222;
         }
 
+        .camera-layout {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 260px;
+            gap: 20px;
+            align-items: start;
+        }
+
+        .camera-view {
+            min-width: 0;
+        }
+
         .camera-image {
             display: none;
             width: 100%;
@@ -205,9 +216,28 @@ std::string crearPagina(
             border-radius: 6px;
         }
 
+        .camera-settings {
+            max-height: calc(100vh - 180px);
+            overflow-y: auto;
+            padding-right: 4px;
+        }
+
+        .camera-settings h3 {
+            margin-top: 0;
+        }
+
         @media (max-width: 900px) {
             .camera-grid {
                 grid-template-columns: 1fr;
+            }
+
+            .camera-layout {
+                grid-template-columns: 1fr;
+            }
+
+            .camera-settings {
+                max-height: none;
+                overflow-y: visible;
             }
         }
     </style>
@@ -258,23 +288,27 @@ std::string paginaInicio()
             <button id="accion-1" class="on" onclick="ejecutarCamara(1)">Iniciar</button>
         </div>
 
-        <img id="imagen-1" class="camera-image" alt="Cámara 1">
-
-        <div class="camera-settings">
-            <h3>Configuración</h3>
-
-            <div class="v4l2-row">
-                <span>Resolución</span>
-                <select id="resolucion-1" class="v4l2-input"></select>
+        <div class="camera-layout">
+            <div class="camera-view">
+                <img id="imagen-1" class="camera-image" alt="Cámara 1">
             </div>
 
-            <div class="v4l2-row">
-                <span>FPS</span>
-                <select id="fps-1" class="v4l2-input"></select>
-            </div>
+            <div class="camera-settings">
+                <h3>Configuración</h3>
 
-            <div id="estado-modos-1" class="estado">Consultando modos...</div>
-            <div id="controles-camara-1"></div>
+                <div class="v4l2-row">
+                    <span>Resolución</span>
+                    <select id="resolucion-1" class="v4l2-input"></select>
+                </div>
+
+                <div class="v4l2-row">
+                    <span>FPS</span>
+                    <select id="fps-1" class="v4l2-input"></select>
+                </div>
+
+                <div id="estado-modos-1" class="estado">Consultando modos...</div>
+                <div id="controles-camara-1"></div>
+            </div>
         </div>
     </div>
 
@@ -286,23 +320,27 @@ std::string paginaInicio()
             <button id="accion-2" class="on" onclick="ejecutarCamara(2)">Iniciar</button>
         </div>
 
-        <img id="imagen-2" class="camera-image" alt="Cámara 2">
-
-        <div class="camera-settings">
-            <h3>Configuración</h3>
-
-            <div class="v4l2-row">
-                <span>Resolución</span>
-                <select id="resolucion-2" class="v4l2-input"></select>
+        <div class="camera-layout">
+            <div class="camera-view">
+                <img id="imagen-2" class="camera-image" alt="Cámara 2">
             </div>
 
-            <div class="v4l2-row">
-                <span>FPS</span>
-                <select id="fps-2" class="v4l2-input"></select>
-            </div>
+            <div class="camera-settings">
+                <h3>Configuración</h3>
 
-            <div id="estado-modos-2" class="estado">Consultando modos...</div>
-            <div id="controles-camara-2"></div>
+                <div class="v4l2-row">
+                    <span>Resolución</span>
+                    <select id="resolucion-2" class="v4l2-input"></select>
+                </div>
+
+                <div class="v4l2-row">
+                    <span>FPS</span>
+                    <select id="fps-2" class="v4l2-input"></select>
+                </div>
+
+                <div id="estado-modos-2" class="estado">Consultando modos...</div>
+                <div id="controles-camara-2"></div>
+            </div>
         </div>
     </div>
 
@@ -523,9 +561,7 @@ async function cargarModosCamara(numero)
 
         resolucion.onchange = () => {
             actualizarFps(numero);
-
-            if (fps.options.length === 1)
-                cambiarModoCamara(numero);
+            cambiarModoCamara(numero);
         };
 
         fps.onchange = () => cambiarModoCamara(numero);
