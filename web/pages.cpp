@@ -199,10 +199,7 @@ std::string crearPagina(
         }
 
         .camera-layout {
-            display: grid;
-            grid-template-columns: minmax(0, 1fr) 260px;
-            gap: 20px;
-            align-items: start;
+            display: block;
         }
 
         .camera-view {
@@ -217,9 +214,7 @@ std::string crearPagina(
         }
 
         .camera-settings {
-            max-height: calc(100vh - 180px);
-            overflow-y: auto;
-            padding-right: 4px;
+            margin-top: 18px;
         }
 
         .camera-settings h3 {
@@ -229,15 +224,6 @@ std::string crearPagina(
         @media (max-width: 900px) {
             .camera-grid {
                 grid-template-columns: 1fr;
-            }
-
-            .camera-layout {
-                grid-template-columns: 1fr;
-            }
-
-            .camera-settings {
-                max-height: none;
-                overflow-y: visible;
             }
         }
     </style>
