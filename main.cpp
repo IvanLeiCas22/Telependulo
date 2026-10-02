@@ -6,7 +6,10 @@
 #include "lighting/lightinggpio.h"
 #include "web/pages.h"
 
+#include <atomic>
 #include <cmath>
+#include <condition_variable>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -17,6 +20,7 @@
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/videoio.hpp>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -349,6 +353,147 @@ bool leerJpeg(Camera& camera, std::mutex& cameraMutex, std::vector<unsigned char
     return cv::imencode(".jpg", frame, jpeg);
 }
 
+struct CameraStreamState
+{
+    std::mutex lifecycleMutex;
+    std::mutex frameMutex;
+    std::condition_variable frameReady;
+    std::thread producer;
+
+    std::vector<unsigned char> latestJpeg;
+    std::uint64_t version = 0;
+    std::size_t clients = 0;
+
+    std::atomic<bool> running{false};
+    std::atomic<bool> failed{false};
+};
+
+void producirStreamCamara(Camera& camera, std::mutex& cameraMutex,
+                          const std::shared_ptr<CameraStreamState>& state)
+{
+    while (state->running.load())
+    {
+        std::vector<unsigned char> jpeg;
+
+        if (!leerJpeg(camera, cameraMutex, jpeg))
+        {
+            state->failed.store(true);
+            state->running.store(false);
+            state->frameReady.notify_all();
+            return;
+        }
+
+        if (!state->running.load())
+            break;
+
+        {
+            std::lock_guard<std::mutex> lock(state->frameMutex);
+            state->latestJpeg = std::move(jpeg);
+            ++state->version;
+        }
+
+        state->frameReady.notify_all();
+    }
+
+    state->frameReady.notify_all();
+}
+
+void cerrarSesionStreamCamara(Camera& camera, std::mutex& cameraMutex,
+                              const std::shared_ptr<CameraStreamState>& state)
+{
+    std::lock_guard<std::mutex> lifecycleLock(state->lifecycleMutex);
+
+    if (state->clients == 0)
+        return;
+
+    --state->clients;
+
+    if (state->clients > 0)
+        return;
+
+    state->running.store(false);
+    state->frameReady.notify_all();
+
+    if (state->producer.joinable())
+        state->producer.join();
+
+    {
+        std::lock_guard<std::mutex> lock(cameraMutex);
+        camera.close();
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(state->frameMutex);
+        state->latestJpeg.clear();
+        state->version = 0;
+    }
+
+    state->failed.store(false);
+}
+
+bool crearSesionStreamCamara(Camera& camera, std::mutex& cameraMutex,
+                             const std::shared_ptr<CameraStreamState>& state,
+                             HttpStreamSession& session)
+{
+    std::lock_guard<std::mutex> lifecycleLock(state->lifecycleMutex);
+
+    if (state->clients == 0)
+    {
+        {
+            std::lock_guard<std::mutex> lock(cameraMutex);
+            if (!camera.open())
+                return false;
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(state->frameMutex);
+            state->latestJpeg.clear();
+            state->version = 0;
+        }
+
+        state->failed.store(false);
+        state->running.store(true);
+
+        state->producer = std::thread([&camera, &cameraMutex, state]()
+        {
+            producirStreamCamara(camera, cameraMutex, state);
+        });
+    }
+    else if (!state->running.load() || state->failed.load())
+    {
+        return false;
+    }
+
+    ++state->clients;
+
+    session.frame = [state, lastVersion = std::uint64_t{0}]
+                    (std::vector<unsigned char>& jpeg) mutable
+    {
+        std::unique_lock<std::mutex> lock(state->frameMutex);
+
+        state->frameReady.wait(lock, [&]()
+        {
+            return state->version != lastVersion ||
+                   state->failed.load() ||
+                   !state->running.load();
+        });
+
+        if (state->failed.load() || !state->running.load())
+            return false;
+
+        jpeg = state->latestJpeg;
+        lastVersion = state->version;
+        return !jpeg.empty();
+    };
+
+    session.stop = [&camera, &cameraMutex, state]()
+    {
+        cerrarSesionStreamCamara(camera, cameraMutex, state);
+    };
+
+    return true;
+}
+
 struct CameraSetup
 {
     std::unique_ptr<Camera> camera;
@@ -371,6 +516,7 @@ CameraSetup crearCamaraIp(const IpCameraConfig& config)
 void registrarCamara(HttpServer& server, int numero, Camera& camera, std::mutex& cameraMutex)
 {
     const std::string id = std::to_string(numero);
+    auto streamState = std::make_shared<CameraStreamState>();
 
     server.get("/capture/" + id, [&camera, &cameraMutex, numero](const HttpRequest&)
     {
@@ -378,19 +524,9 @@ void registrarCamara(HttpServer& server, int numero, Camera& camera, std::mutex&
     });
 
     server.stream("/stream/" + id,
-                  [&camera, &cameraMutex]()
+                  [&camera, &cameraMutex, streamState](HttpStreamSession& session)
                   {
-                      std::lock_guard<std::mutex> lock(cameraMutex);
-                      return camera.open();
-                  },
-                  [&camera, &cameraMutex](std::vector<unsigned char>& jpeg)
-                  {
-                      return leerJpeg(camera, cameraMutex, jpeg);
-                  },
-                  [&camera, &cameraMutex]()
-                  {
-                      std::lock_guard<std::mutex> lock(cameraMutex);
-                      camera.close();
+                      return crearSesionStreamCamara(camera, cameraMutex, streamState, session);
                   });
 }
 

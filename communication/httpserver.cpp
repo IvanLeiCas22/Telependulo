@@ -8,12 +8,30 @@
 
 // Headers del sistema linux
 #include <netinet/in.h>                                 // En que puerto e interfaz escucha el servidor
+#include <netinet/tcp.h>                                // Para limitar datos TCP pendientes del stream
 #include <sys/socket.h>                                 // Funciones de sockets
 #include <unistd.h>                                     // Para cerrar los sockets
 
 namespace
 {
 constexpr std::size_t MAX_REQUEST_SIZE = 8192;
+constexpr unsigned int STREAM_TCP_NOTSENT_LOWAT = 16 * 1024;
+
+void configureStreamSocket(int socket)
+{
+#ifdef TCP_NOTSENT_LOWAT
+    const unsigned int notSentLowat = STREAM_TCP_NOTSENT_LOWAT;
+
+    if (setsockopt(socket, IPPROTO_TCP, TCP_NOTSENT_LOWAT,
+                   &notSentLowat, sizeof(notSentLowat)) < 0)
+    {
+        std::cerr << "[HttpServer] No se pudo limitar la cola TCP del stream.\n";
+    }
+#else
+    (void)socket;
+    std::cerr << "[HttpServer] TCP_NOTSENT_LOWAT no esta disponible en este sistema.\n";
+#endif
+}
 
 std::string statusText(int statusCode)
 {
@@ -77,20 +95,10 @@ void HttpServer::put(const std::string& path, HttpHandler handler)
     putRoutes_[path] = std::move(handler);
 }
 
-void HttpServer::stream(const std::string& path, HttpStreamHandler handler)
+void HttpServer::stream(const std::string& path, HttpStreamSessionFactory createSession)
 {
     HttpStreamRoute route;
-    route.frame = std::move(handler);
-    streamRoutes_[path] = std::move(route);
-}
-
-void HttpServer::stream(const std::string& path, HttpStreamStartHandler start,
-                        HttpStreamHandler handler, HttpStreamStopHandler stop)
-{
-    HttpStreamRoute route;
-    route.start = std::move(start);
-    route.frame = std::move(handler);
-    route.stop = std::move(stop);
+    route.createSession = std::move(createSession);
     streamRoutes_[path] = std::move(route);
 }
 
@@ -231,8 +239,20 @@ bool HttpServer::sendResponse(int clientSocket, const HttpResponse& response)
 
 bool HttpServer::sendStream(int clientSocket, const HttpStreamRoute& route)
 {
-    if (route.start && !route.start())
+    configureStreamSocket(clientSocket);
+
+    HttpStreamSession session;
+    if (!route.createSession || !route.createSession(session) || !session.frame)
         return sendResponse(clientSocket, HttpResponse::text("No se pudo iniciar el stream.", 500));
+
+    auto stopSession = [&session]()
+    {
+        if (!session.stop)
+            return;
+
+        session.stop();
+        session.stop = {};
+    };
 
     static const std::string boundary = "telependulo-frame";
     std::string header =
@@ -244,7 +264,7 @@ bool HttpServer::sendStream(int clientSocket, const HttpStreamRoute& route)
 
     if (!sendAll(clientSocket, header.data(), header.size()))
     {
-        if (route.stop) route.stop();
+        stopSession();
         return false;
     }
 
@@ -254,9 +274,9 @@ bool HttpServer::sendStream(int clientSocket, const HttpStreamRoute& route)
     {
         frame.clear();
 
-        if (!route.frame(frame) || frame.empty())
+        if (!session.frame(frame) || frame.empty())
         {
-            if (route.stop) route.stop();
+            stopSession();
             return true;
         }
 
@@ -270,7 +290,7 @@ bool HttpServer::sendStream(int clientSocket, const HttpStreamRoute& route)
             !sendAll(clientSocket, reinterpret_cast<const char*>(frame.data()), frame.size()) ||
             !sendAll(clientSocket, "\r\n", 2))
         {
-            if (route.stop) route.stop();
+            stopSession();
             return false;
         }
     }

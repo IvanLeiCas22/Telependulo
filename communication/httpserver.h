@@ -1,12 +1,12 @@
 #ifndef HTTPSERVER_H
 #define HTTPSERVER_H
 
-#include <functional>                                   // Permite guardar una función que reciba const HttpRequest& y devuelva HttpResponse
+#include <functional>                                   // Permite guardar funciones callback
 #include <unordered_map>                                // Para la relación ruta web -> función que la atiende
 
 #include <string>                                       // Uso de string
 #include <cstddef>                                      // Para función size
-#include <vector>                                       // Para los frames JPEG del stream
+#include <vector>                                       // Para los JPEG del stream
 
 struct HttpRequest
 {
@@ -29,14 +29,19 @@ struct HttpResponse
 
 using HttpHandler = std::function<HttpResponse(const HttpRequest&)>;
 using HttpStreamHandler = std::function<bool(std::vector<unsigned char>&)>;
-using HttpStreamStartHandler = std::function<bool()>;
 using HttpStreamStopHandler = std::function<void()>;
+
+struct HttpStreamSession
+{
+    HttpStreamHandler frame;
+    HttpStreamStopHandler stop;
+};
+
+using HttpStreamSessionFactory = std::function<bool(HttpStreamSession&)>;
 
 struct HttpStreamRoute
 {
-    HttpStreamStartHandler start;
-    HttpStreamHandler frame;
-    HttpStreamStopHandler stop;
+    HttpStreamSessionFactory createSession;
 };
 
 class HttpServer
@@ -46,9 +51,7 @@ public:
 
     void get(const std::string& path, HttpHandler handler);                       // Registrar una ruta GET y decir qué callback debe atenderla
     void put(const std::string& path, HttpHandler handler);
-    void stream(const std::string& path, HttpStreamHandler handler);               // Registrar un stream MJPEG
-    void stream(const std::string& path, HttpStreamStartHandler start,
-                HttpStreamHandler handler, HttpStreamStopHandler stop);
+    void stream(const std::string& path, HttpStreamSessionFactory createSession); // Registrar un stream MJPEG
     bool run();
 
 private:
