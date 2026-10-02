@@ -1,7 +1,7 @@
 #ifndef HTTPSERVER_H
 #define HTTPSERVER_H
 
-#include <functional>                                   // Permite guardar una función que reciba const HttpRequest& y devuelva HttpResponse
+#include <cstdint>                                      // Para identificar la version de cada frame\n#include <functional>                                   // Permite guardar una función que reciba const HttpRequest& y devuelva HttpResponse
 #include <unordered_map>                                // Para la relación ruta web -> función que la atiende
 
 #include <string>                                       // Uso de string
@@ -28,7 +28,7 @@ struct HttpResponse
 };
 
 using HttpHandler = std::function<HttpResponse(const HttpRequest&)>;
-using HttpStreamHandler = std::function<bool(std::vector<unsigned char>&)>;
+using HttpStreamHandler = std::function<bool(std::vector<unsigned char>&, std::uint64_t&)>;
 using HttpStreamStartHandler = std::function<bool()>;
 using HttpStreamStopHandler = std::function<void()>;
 
