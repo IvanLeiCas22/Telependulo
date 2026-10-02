@@ -1,5 +1,4 @@
 #include "camera/camera.h"
-#include "camera/camerastream.h"
 #include "camera/cameraip.h"
 #include "camera/camerausb.h"
 #include "communication/httpserver.h"
@@ -337,6 +336,19 @@ HttpResponse responderCaptura(Camera& camera, std::mutex& cameraMutex, int numer
     return {200, "image/png", std::move(body)};
 }
 
+bool leerJpeg(Camera& camera, std::mutex& cameraMutex, std::vector<unsigned char>& jpeg)
+{
+    cv::Mat frame;
+    {
+        std::lock_guard<std::mutex> lock(cameraMutex);
+        if (!camera.read(frame))
+            return false;
+    }
+
+    jpeg.clear();
+    return cv::imencode(".jpg", frame, jpeg);
+}
+
 struct CameraSetup
 {
     std::unique_ptr<Camera> camera;
@@ -356,8 +368,7 @@ CameraSetup crearCamaraIp(const IpCameraConfig& config)
     return {std::make_unique<CameraIp>(config), nullptr};
 }
 
-void registrarCamara(HttpServer& server, int numero, Camera& camera, std::mutex& cameraMutex,
-                      CameraStream& stream)
+void registrarCamara(HttpServer& server, int numero, Camera& camera, std::mutex& cameraMutex)
 {
     const std::string id = std::to_string(numero);
 
@@ -367,17 +378,19 @@ void registrarCamara(HttpServer& server, int numero, Camera& camera, std::mutex&
     });
 
     server.stream("/stream/" + id,
-                  [&stream]()
+                  [&camera, &cameraMutex]()
                   {
-                      return stream.start();
+                      std::lock_guard<std::mutex> lock(cameraMutex);
+                      return camera.open();
                   },
-                  [&stream](std::vector<unsigned char>& jpeg, std::uint64_t& sequence)
+                  [&camera, &cameraMutex](std::vector<unsigned char>& jpeg)
                   {
-                      return stream.latest(jpeg, sequence);
+                      return leerJpeg(camera, cameraMutex, jpeg);
                   },
-                  [&stream]()
+                  [&camera, &cameraMutex]()
                   {
-                      stream.stop();
+                      std::lock_guard<std::mutex> lock(cameraMutex);
+                      camera.close();
                   });
 }
 
@@ -418,13 +431,11 @@ int main()
     usbConfig.fourcc = cv::VideoWriter::fourcc('Y', 'U', 'Y', 'V');
     CameraSetup camera1 = crearCamaraUsb(usbConfig);
     std::mutex camera1Mutex;
-    CameraStream camera1Stream(*camera1.camera, camera1Mutex);
 
     UsbCameraConfig usbConfig2 = usbConfig;
     usbConfig2.deviceIndex = 2;
     CameraSetup camera2 = crearCamaraUsb(usbConfig2);
     std::mutex camera2Mutex;
-    CameraStream camera2Stream(*camera2.camera, camera2Mutex);
 
     namespace fs = std::filesystem;
     const fs::path imagesDir = fs::path(TELEPENDULO_PROJECT_ROOT) / "images";
@@ -487,8 +498,8 @@ int main()
                    return responderTodasLasLuces(lighting, false);
                });
 
-    registrarCamara(server, 1, *camera1.camera, camera1Mutex, camera1Stream);
-    registrarCamara(server, 2, *camera2.camera, camera2Mutex, camera2Stream);
+    registrarCamara(server, 1, *camera1.camera, camera1Mutex);
+    registrarCamara(server, 2, *camera2.camera, camera2Mutex);
 
     if (camera1.usb)
         registrarConfiguracionUsb(server, 1, *camera1.usb, camera1Mutex);

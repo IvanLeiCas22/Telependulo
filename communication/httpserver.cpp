@@ -8,30 +8,12 @@
 
 // Headers del sistema linux
 #include <netinet/in.h>                                 // En que puerto e interfaz escucha el servidor
-#include <netinet/tcp.h>                                // Para limitar datos TCP pendientes del stream
 #include <sys/socket.h>                                 // Funciones de sockets
 #include <unistd.h>                                     // Para cerrar los sockets
 
 namespace
 {
 constexpr std::size_t MAX_REQUEST_SIZE = 8192;
-constexpr unsigned int STREAM_TCP_NOTSENT_LOWAT = 16 * 1024;
-
-void configureStreamSocket(int socket)
-{
-#ifdef TCP_NOTSENT_LOWAT
-    const unsigned int notSentLowat = STREAM_TCP_NOTSENT_LOWAT;
-
-    if (setsockopt(socket, IPPROTO_TCP, TCP_NOTSENT_LOWAT,
-                   &notSentLowat, sizeof(notSentLowat)) < 0)
-    {
-        std::cerr << "[HttpServer] No se pudo limitar la cola TCP del stream.\n";
-    }
-#else
-    (void)socket;
-    std::cerr << "[HttpServer] TCP_NOTSENT_LOWAT no esta disponible en este sistema.\n";
-#endif
-}
 
 std::string statusText(int statusCode)
 {
@@ -249,8 +231,6 @@ bool HttpServer::sendResponse(int clientSocket, const HttpResponse& response)
 
 bool HttpServer::sendStream(int clientSocket, const HttpStreamRoute& route)
 {
-    configureStreamSocket(clientSocket);
-
     if (route.start && !route.start())
         return sendResponse(clientSocket, HttpResponse::text("No se pudo iniciar el stream.", 500));
 
@@ -269,13 +249,12 @@ bool HttpServer::sendStream(int clientSocket, const HttpStreamRoute& route)
     }
 
     std::vector<unsigned char> frame;
-    std::uint64_t frameSequence = 0;
 
     while (true)
     {
         frame.clear();
 
-        if (!route.frame(frame, frameSequence) || frame.empty())
+        if (!route.frame(frame) || frame.empty())
         {
             if (route.stop) route.stop();
             return true;
