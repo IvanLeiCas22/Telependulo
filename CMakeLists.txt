@@ -15,6 +15,8 @@ add_executable(Telependulo
     main.cpp
 
     camera/camera.h
+    camera/camerastream.cpp
+    camera/camerastream.h
     camera/camerausb.cpp
     camera/camerausb.h
     camera/cameraip.cpp
