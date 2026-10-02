@@ -1,7 +1,8 @@
 #ifndef HTTPSERVER_H
 #define HTTPSERVER_H
 
-#include <cstdint>                                      // Para identificar la version de cada frame\n#include <functional>                                   // Permite guardar una función que reciba const HttpRequest& y devuelva HttpResponse
+#include <cstdint>                                      // Para identificar la version de cada frame
+#include <functional>                                   // Permite guardar una función que reciba const HttpRequest& y devuelva HttpResponse
 #include <unordered_map>                                // Para la relación ruta web -> función que la atiende
 
 #include <string>                                       // Uso de string
