@@ -21,20 +21,50 @@ enum class CalibrationLoadStatus
     ReadError      // hubo un error al intentar leerlo
 };
 
+enum class ObservationStatus
+{
+    Added,
+    InvalidImage,
+    IncompleteBoard,
+    WrongImageSize,
+    TooSimilar,
+    ProcessingFailed
+};
+
 enum class CalibrationStatus
 {
     Success,
     NotEnoughObservations,
-    CalibrationFailed,
-    WriteError
+    CalibrationFailed
+};
+
+enum class CalibrationTargetZone
+{
+    TopLeft,    Top,    TopRight,
+    Left,       Center, Right,
+    BottomLeft, Bottom, BottomRight
+};
+
+struct IntrinsicStandardDeviations
+{
+    double fx = 0.0;
+    double fy = 0.0;
+    double cx = 0.0;
+    double cy = 0.0;
+
+    double k1 = 0.0;
+    double k2 = 0.0;
+    double p1 = 0.0;
+    double p2 = 0.0;
+    double k3 = 0.0;
 };
 
 struct CharucoConfig
 {
     int columns = 12;
     int rows = 10;
-    float squareSize = 10.0f;
-    float markerSize = 7.0f;
+    float squareSize = 10.0f;   // mm
+    float markerSize = 7.0f;    // mm
     CharucoDictionary dictionary = CharucoDictionary::Dict6x6_250;
 };
 
@@ -44,6 +74,15 @@ struct MonocularCalibrationResult
     cv::Mat distCoeffs;         // distortion coefficients (D)
     cv::Size imageSize{0,0};    // resolución imagenes
     double rmsError = 0.0;      // error de calibración en px
+};
+
+struct CalibrationAnalysis
+{
+    MonocularCalibrationResult result;
+    IntrinsicStandardDeviations intrinsicStdDev;
+
+    // un error RMS por cada observación, en el mismo orden en que fueron agregadas
+    std::vector<double> perViewErrors;
 };
 
 class CameraCalibration
@@ -57,10 +96,18 @@ public:
         const std::filesystem::path& calibrationDirectory
         );
 
+    /**
+     * Funciones
+    */
+
     // recibir una imagen de calibración y si es válida extraer la información importante
-    bool addObservation(const cv::Mat& image, cv::Mat& annotatedImage);
-    // obtener la cantidad de imagenes válidas con info guardada
-    std::size_t getImageCount() const;
+    ObservationStatus addObservation(const cv::Mat& image, cv::Mat& annotatedImage);
+    // se elimina la última observación (motivos varios)
+    bool removeLastObservation();
+    // obtener la cantidad de observaciones guardadas
+    std::size_t getObservationCount() const;
+    // obtener la zona recomendada para la próxima observación
+    CalibrationTargetZone getRecommendedTargetZone() const;
 
     // configurar el tipo de charuco esperado y limpiar las observaciones si se detectan cambios de configuración
     bool setCharucoConfig(const CharucoConfig& config);
@@ -69,15 +116,23 @@ public:
 
     // cargar la calibración persistida desde archivo
     CalibrationLoadStatus loadCalibration();
-    // realizar la calibración con todas las observaciones agregadas
-    CalibrationStatus calibrate();
-    // pedir los resultados de la calibración
+    // calcular la calibración y sus estadísticas usando las observaciones actuales
+    CalibrationStatus calibrate(CalibrationAnalysis& analysis) const;
+    // obtener la calibración actualmente cargada o guardada
     const MonocularCalibrationResult* getCalibrationResult() const;
+    // persistir una calibración y convertirla en la calibración vigente
+    bool saveCalibration(const MonocularCalibrationResult& result);
 
     // borrar la calibración persistida de esta cámara
     bool clearCalibration();
     // borrar las observaciones guardadas
     void clearObservations();
+
+    /**
+     * Variables
+    */
+
+    static constexpr std::size_t MinimumObservations = 10;
 
 private:
     struct CharucoObservation
@@ -86,9 +141,15 @@ private:
         std::vector<int> ids;
     };
 
-    // funciones
-    bool saveCalibration(const MonocularCalibrationResult& result);
-    std::filesystem::path calibrationFilePath() const;
+    /**
+     * Funciones
+    */
+
+    // obtener el filepath donde se guarda la calibración
+    std::filesystem::path getCalibrationFilePath() const;
+
+    // analizar si la observación obtenida es muy similar a las ya realizadas
+    bool isObservationTooSimilar(const CharucoObservation& observation) const;
 
     // variables miembro
     std::vector<CharucoObservation> observations_;
@@ -99,7 +160,7 @@ private:
     cv::Size imageSize_{0, 0};    // Tamaño de imagen esperado
     CharucoConfig charucoConfig_;
 
-    MonocularCalibrationResult calibrationResult_;    // Almacenar resultado de la última calibración
+    MonocularCalibrationResult calibrationResult_;    // Calibración actualmente cargada o guardada
     bool isCalibrationValid_ = false;
 };
 
