@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-find_package(OpenCV REQUIRED COMPONENTS core videoio imgcodecs)
+find_package(OpenCV REQUIRED COMPONENTS core videoio imgcodecs objdetect calib3d)
 
 find_path(GPIOD_INCLUDE_DIR gpiod.h REQUIRED)
 find_library(GPIOD_LIBRARY NAMES gpiod REQUIRED)
