@@ -82,3 +82,6 @@ CMakeLists.txt.user*
 .uic/
 /build*/
 /.qtcreator/
+
+# Datos persistidos locales (calibraciones y futuros guardados)
+/saves/

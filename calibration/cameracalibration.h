@@ -6,6 +6,8 @@
 #include <vector>
 #include <cstddef>
 #include <filesystem>
+#include <cstdint>
+#include <optional>
 
 enum class CharucoDictionary
 {
@@ -61,11 +63,11 @@ struct IntrinsicStandardDeviations
 
 struct CharucoConfig
 {
-    int columns = 12;
-    int rows = 10;
+    int columns = 10;
+    int rows = 7;
     float squareSize = 10.0f;   // mm
     float markerSize = 7.0f;    // mm
-    CharucoDictionary dictionary = CharucoDictionary::Dict6x6_250;
+    CharucoDictionary dictionary = CharucoDictionary::Dict5x5_100;
 };
 
 struct MonocularCalibrationResult
@@ -116,12 +118,16 @@ public:
 
     // cargar la calibración persistida desde archivo
     CalibrationLoadStatus loadCalibration();
-    // calcular la calibración y sus estadísticas usando las observaciones actuales
-    CalibrationStatus calibrate(CalibrationAnalysis& analysis) const;
+    // calcular la calibración y conservar el análisis pendiente para su revisión
+    CalibrationStatus calibrate();
+    // consultar el último análisis pendiente, sin transferir su propiedad
+    const CalibrationAnalysis* getPendingAnalysis() const;
+    // guardar y activar exclusivamente el resultado pendiente de esta sesión
+    bool savePendingCalibration();
+    // revisión de la sesión para descartar capturas adquiridas antes de un reinicio
+    std::uint64_t getRevision() const;
     // obtener la calibración actualmente cargada o guardada
     const MonocularCalibrationResult* getCalibrationResult() const;
-    // persistir una calibración y convertirla en la calibración vigente
-    bool saveCalibration(const MonocularCalibrationResult& result);
 
     // borrar la calibración persistida de esta cámara
     bool clearCalibration();
@@ -150,6 +156,10 @@ private:
 
     // analizar si la observación obtenida es muy similar a las ya realizadas
     bool isObservationTooSimilar(const CharucoObservation& observation) const;
+    // escribir el resultado validado y convertirlo en calibración vigente
+    bool saveCalibration(const MonocularCalibrationResult& result);
+    // invalidar el análisis cuando cambie la sesión de observaciones
+    void invalidatePendingAnalysis();
 
     // variables miembro
     std::vector<CharucoObservation> observations_;
@@ -159,6 +169,8 @@ private:
 
     cv::Size imageSize_{0, 0};    // Tamaño de imagen esperado
     CharucoConfig charucoConfig_;
+    std::optional<CalibrationAnalysis> pendingAnalysis_;
+    std::uint64_t revision_ = 0;
 
     MonocularCalibrationResult calibrationResult_;    // Calibración actualmente cargada o guardada
     bool isCalibrationValid_ = false;

@@ -40,6 +40,7 @@ std::string statusText(int statusCode)
     case 200: return "OK";
     case 400: return "Bad Request";
     case 404: return "Not Found";
+    case 409: return "Conflict";
     case 405: return "Method Not Allowed";
     default: return "Internal Server Error";
     }
@@ -231,9 +232,12 @@ bool HttpServer::sendResponse(int clientSocket, const HttpResponse& response)
         "HTTP/1.1 " + std::to_string(response.statusCode) + " " + statusText(response.statusCode) + "\r\n"
         "Content-Type: " + response.contentType + "\r\n"
         "Content-Length: " + std::to_string(response.body.size()) + "\r\n"
-        "Connection: close\r\n"
-        "\r\n";
+        "Connection: close\r\n";
 
+    for (const auto& extra : response.headers)
+        header += extra.first + ": " + extra.second + "\r\n";
+
+    header += "\r\n";
     return sendAll(clientSocket, header.data(), header.size()) && sendAll(clientSocket, response.body.data(), response.body.size());
 }
 

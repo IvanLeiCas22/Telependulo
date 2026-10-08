@@ -144,23 +144,37 @@ no se persisten actualmente.
 
 ### Cálculo y activación
 
-`calibrate()` calcula un resultado y sus estadísticas utilizando las
-observaciones actuales, pero no modifica automáticamente la calibración
-vigente ni la persiste.
+`calibrate()` calcula las estadísticas de las observaciones y conserva
+internamente un análisis pendiente. `getPendingAnalysis()` devuelve un
+puntero de solo lectura a ese análisis, o `nullptr` si no existe. Un cálculo
+fallido descarta el análisis pendiente anterior.
 
-Una calibración pasa a ser la calibración vigente únicamente cuando se
-guarda correctamente mediante `saveCalibration()` o cuando se carga
-correctamente desde archivo.
+Agregar una observación aceptada, eliminarla, limpiar la sesión o cambiar
+el patrón ChArUco descarta automáticamente el análisis pendiente. Esas
+operaciones incrementan la revisión de la sesión (`getRevision()`); limpiar
+la sesión incrementa la revisión incluso cuando está vacía, para invalidar
+capturas que pudieran estar en curso.
 
-Esto permite analizar un resultado antes de decidir si debe reemplazar
-la calibración actual.
+Solo `savePendingCalibration()` permite guardar y activar el resultado
+pendiente desde la API pública. `calibrate()` por sí mismo no reemplaza la
+calibración vigente. `loadCalibration()` recupera una calibración previamente
+guardada sin modificar las observaciones actuales.
+
+Una consulta a un puntero devuelto por la clase debe realizarse mientras
+su mutex externo esté bloqueado; no se debe conservar ese puntero después
+de liberar el mutex. Esto permite revisar los resultados antes de guardarlos.
 
 ## Persistencia
 
-Cada cámara guarda su calibración de forma independiente:
+Cada cámara guarda su calibración de forma independiente dentro de
+`saves/calibrations/` (directorio local excluido de Git):
 
-- `camera1.json`
-- `camera2.json`
+- `saves/calibrations/camera1.json`
+- `saves/calibrations/camera2.json`
+
+`main` intenta cargar ambas calibraciones al iniciar; la ausencia o el fallo
+de carga se informa sin impedir el arranque. El directorio se crea al
+guardar por primera vez.
 
 El archivo almacena:
 
@@ -210,10 +224,68 @@ No se ocupa de:
 La captura automática y la interacción con el usuario se coordinan desde
 capas superiores.
 
+### Coordinación desde `main` (C2)
+
+`main` construye una instancia `CameraCalibration` y un mutex de calibración
+para cada cámara, separados de los mutex que protegen las cámaras físicas.
+Los accesos a métodos y punteros internos de calibración se realizan bajo
+su mutex correspondiente.
+
+La función `capturarObservacionCalibracion()` registra la revisión actual,
+adquiere un frame bajo el mutex de cámara y lo procesa posteriormente bajo
+el mutex de calibración. Si la revisión cambió durante la adquisición,
+descarta la imagen en vez de incorporarla a un estado distinto. Esto puede
+suceder también cuando otra captura acepta una observación concurrentemente.
+La adquisición y el procesamiento nunca mantienen ambos mutex a la vez.
+
+Desde C3.1 esta función se invoca mediante `PUT /calibration/{id}/observe`.
+La página `/calibration` (C3.2) permite realizar capturas manuales o
+automáticas y consultar los resultados sin agregar responsabilidades HTTP
+a la librería de calibración.
+
+### Captura automática desde el navegador (C3.2)
+
+La captura automática se controla desde JavaScript en la página de calibración.
+El usuario elige la cámara y un intervalo de 0,5 a 120 segundos (3 s por
+defecto), y luego inicia o detiene la adquisición.
+
+El ciclo realiza una captura y espera su respuesta antes de programar la
+siguiente con `setTimeout()`. Por lo tanto, el intervalo comienza al finalizar
+la petición anterior, no marca un periodo exacto entre fotografías.
+El navegador nunca envía dos capturas automáticas simultáneas.
+
+Las observaciones rechazadas se muestran anotadas sin aumentar el contador.
+Si cambia la resolución, se detiene el ciclo para que el usuario pueda
+reiniciar las observaciones; también se detiene ante un fallo de adquisición.
+La captura no se detiene automáticamente al alcanzar las 10 observaciones,
+porque son un mínimo y no aseguran una calibración suficientemente diversa.
+
+Al detener el ciclo se deja terminar la solicitud que ya estaba en curso;
+las operaciones de cálculo y reinicio esperan a que termine esa captura.
+Al cambiar de cámara, ocultar la pestaña o salir de la página, se detiene
+el ciclo automático. No continúa si el navegador se cierra.
+
+Los resultados pendientes deben revisarse y guardarse explícitamente:
+no existe cálculo ni guardado automático.
+
+## Checkpoints de integración
+
+1. **C1 — Validación de la librería:** validadores reforzados y revisados.
+2. **C2 — Coordinación:** análisis y revisión encapsulados en `CameraCalibration`; dos instancias y mutex independientes en `main`. Revisado.
+3. **C3.1 — API HTTP:** rutas de calibración con respuestas JSON y PNG anotados. Revisado; contrato en `docs/http-api.md`.
+4. **C3.2 — Interfaz web:** página `/calibration`, captura manual/automática configurable, visualización y guardado explícito. Implementado, pendiente de revisión.
+5. **C3.3 — Validación integrada:** probar ambos flujos con cámaras reales, el stream concurrente y la persistencia tras reiniciar.
+
 ## Pendiente
 
 - Evaluar `removeObservation(index)` para permitir eliminar una vista
   específica identificada como problemática mediante `perViewErrors`.
 - Validar experimentalmente el umbral de similitud.
-- Integrar el flujo con la interfaz web.
 - Implementar calibración estéreo en un componente separado.
+
+### Pruebas automatizadas (postergadas)
+
+Prioridad posterior a la revisión e integración funcional de la calibración monocular.
+Usar CMake/CTest, con fuentes en `tests/` y archivos generados únicamente en
+un directorio de compilación ignorado por Git. Cubrir configuración, observaciones,
+cálculo, persistencia y casos de error, sin requerir cámaras físicas.

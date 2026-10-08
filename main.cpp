@@ -1,6 +1,7 @@
 #include "camera/camera.h"
 #include "camera/cameraip.h"
 #include "camera/camerausb.h"
+#include "calibration/cameracalibration.h"
 #include "communication/httpserver.h"
 #include "lighting/lighting.h"
 #include "lighting/lightinggpio.h"
@@ -12,10 +13,13 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <limits>
 #include <linux/videodev2.h>
+#include <locale>
 #include <memory>
+#include <sstream>
 #include <mutex>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/videoio.hpp>
@@ -32,6 +36,11 @@ HttpResponse responderInicio(const HttpRequest& request)
 HttpResponse responderConfiguracion(const HttpRequest& request)
 {
     return HttpResponse::html(paginaConfiguracion());
+}
+
+HttpResponse responderPaginaCalibracion(const HttpRequest&)
+{
+    return HttpResponse::html(paginaCalibracion());
 }
 
 HttpResponse responderEstadoLuz(Lighting& lighting, std::size_t channel)
@@ -340,6 +349,295 @@ HttpResponse responderCaptura(Camera& camera, std::mutex& cameraMutex, int numer
     return {200, "image/png", std::move(body)};
 }
 
+enum class CalibrationCaptureStatus
+{
+    Processed,
+    CaptureFailed,
+    SessionChanged
+};
+
+struct CalibrationCaptureResult
+{
+    CalibrationCaptureStatus status;
+    ObservationStatus observationStatus = ObservationStatus::InvalidImage;
+    std::size_t observationCount = 0;
+    std::uint64_t revision = 0;
+    cv::Mat annotatedImage;
+
+    explicit CalibrationCaptureResult(CalibrationCaptureStatus captureStatus)
+        : status(captureStatus) {}
+};
+
+// Solo bloquear la cámara para adquirir la imagen; el análisis ChArUco
+// se realiza bajo el mutex de calibración, sin bloquear el stream.
+CalibrationCaptureResult capturarObservacionCalibracion(
+    Camera& camera, std::mutex& cameraMutex,
+    CameraCalibration& calibration, std::mutex& calibrationMutex)
+{
+    std::uint64_t expectedRevision;
+    {
+        std::lock_guard<std::mutex> lock(calibrationMutex);
+        expectedRevision = calibration.getRevision();
+    }
+
+    cv::Mat frame;
+    {
+        std::lock_guard<std::mutex> lock(cameraMutex);
+        if (!camera.capture(frame))
+            return CalibrationCaptureResult{CalibrationCaptureStatus::CaptureFailed};
+    }
+
+    std::lock_guard<std::mutex> lock(calibrationMutex);
+    if (calibration.getRevision() != expectedRevision)
+        return CalibrationCaptureResult{CalibrationCaptureStatus::SessionChanged};
+
+    CalibrationCaptureResult result{CalibrationCaptureStatus::Processed};
+    result.observationStatus = calibration.addObservation(frame, result.annotatedImage);
+    result.observationCount = calibration.getObservationCount();
+    result.revision = calibration.getRevision();
+    return result;
+}
+
+const char* nombreEstadoObservacion(ObservationStatus status)
+{
+    switch (status)
+    {
+    case ObservationStatus::Added: return "added";
+    case ObservationStatus::InvalidImage: return "invalid_image";
+    case ObservationStatus::IncompleteBoard: return "incomplete_board";
+    case ObservationStatus::WrongImageSize: return "wrong_image_size";
+    case ObservationStatus::TooSimilar: return "too_similar";
+    case ObservationStatus::ProcessingFailed: return "processing_failed";
+    }
+    return "unknown";
+}
+
+const char* nombreZona(CalibrationTargetZone zone)
+{
+    switch (zone)
+    {
+    case CalibrationTargetZone::TopLeft: return "top_left";
+    case CalibrationTargetZone::Top: return "top";
+    case CalibrationTargetZone::TopRight: return "top_right";
+    case CalibrationTargetZone::Left: return "left";
+    case CalibrationTargetZone::Center: return "center";
+    case CalibrationTargetZone::Right: return "right";
+    case CalibrationTargetZone::BottomLeft: return "bottom_left";
+    case CalibrationTargetZone::Bottom: return "bottom";
+    case CalibrationTargetZone::BottomRight: return "bottom_right";
+    }
+    return "unknown";
+}
+
+const char* nombreDiccionario(CharucoDictionary dictionary)
+{
+    switch (dictionary)
+    {
+    case CharucoDictionary::Dict5x5_100: return "5x5_100";
+    case CharucoDictionary::Dict6x6_250: return "6x6_250";
+    }
+    return "unknown";
+}
+
+void serializarResultadoCalibracion(std::ostringstream& json,
+                                   const MonocularCalibrationResult& result)
+{
+    cv::Mat matrix;
+    cv::Mat distortion;
+    result.cameraMatrix.convertTo(matrix, CV_64F);
+    result.distCoeffs.convertTo(distortion, CV_64F);
+
+    json << "{\"imageWidth\":" << result.imageSize.width
+         << ",\"imageHeight\":" << result.imageSize.height
+         << ",\"rmsError\":" << result.rmsError
+         << ",\"cameraMatrix\":[";
+
+    for (int row = 0; row < 3; ++row)
+    {
+        if (row) json << ",";
+        json << "[";
+        for (int col = 0; col < 3; ++col)
+        {
+            if (col) json << ",";
+            json << matrix.at<double>(row, col);
+        }
+        json << "]";
+    }
+
+    json << "],\"distCoeffs\":[";
+    for (int i = 0; i < 5; ++i)
+    {
+        if (i) json << ",";
+        json << distortion.at<double>(i);
+    }
+    json << "]}";
+}
+
+// Solo debe invocarse con el mutex de esta calibración bloqueado.
+std::string serializarEstadoCalibracion(int numero,
+                                       const CameraCalibration& calibration)
+{
+    std::ostringstream json;
+    json.imbue(std::locale::classic());
+    json << std::setprecision(std::numeric_limits<double>::max_digits10);
+
+    const CharucoConfig& config = calibration.getCharucoConfig();
+    json << "{\"cameraId\":" << numero
+         << ",\"observationCount\":" << calibration.getObservationCount()
+         << ",\"minimumObservations\":" << CameraCalibration::MinimumObservations
+         << ",\"revision\":" << calibration.getRevision()
+         << ",\"recommendedZone\":\"" << nombreZona(calibration.getRecommendedTargetZone())
+         << "\",\"config\":{\"columns\":" << config.columns
+         << ",\"rows\":" << config.rows
+         << ",\"squareSize\":" << config.squareSize
+         << ",\"markerSize\":" << config.markerSize
+         << ",\"dictionary\":\"" << nombreDiccionario(config.dictionary)
+         << "\"},\"savedCalibration\":";
+
+    const MonocularCalibrationResult* saved = calibration.getCalibrationResult();
+    if (saved)
+        serializarResultadoCalibracion(json, *saved);
+    else
+        json << "null";
+
+    json << ",\"pendingAnalysis\":";
+    const CalibrationAnalysis* pending = calibration.getPendingAnalysis();
+    if (!pending)
+    {
+        json << "null";
+    }
+    else
+    {
+        const IntrinsicStandardDeviations& stdDev = pending->intrinsicStdDev;
+        json << "{\"result\":";
+        serializarResultadoCalibracion(json, pending->result);
+        json << ",\"intrinsicStdDev\":{\"fx\":" << stdDev.fx
+             << ",\"fy\":" << stdDev.fy
+             << ",\"cx\":" << stdDev.cx
+             << ",\"cy\":" << stdDev.cy
+             << ",\"k1\":" << stdDev.k1
+             << ",\"k2\":" << stdDev.k2
+             << ",\"p1\":" << stdDev.p1
+             << ",\"p2\":" << stdDev.p2
+             << ",\"k3\":" << stdDev.k3
+             << "},\"perViewErrors\":[";
+        for (std::size_t i = 0; i < pending->perViewErrors.size(); ++i)
+        {
+            if (i) json << ",";
+            json << pending->perViewErrors[i];
+        }
+        json << "]}";
+    }
+    json << "}";
+    return json.str();
+}
+
+HttpResponse estadoCalibracionBajoLock(int numero,
+                                      const CameraCalibration& calibration)
+{
+    return {200, "application/json; charset=utf-8",
+            serializarEstadoCalibracion(numero, calibration),
+            {{"Cache-Control", "no-store"}}};
+}
+
+HttpResponse responderEstadoCalibracion(int numero,
+                                       CameraCalibration& calibration,
+                                       std::mutex& calibrationMutex)
+{
+    std::lock_guard<std::mutex> lock(calibrationMutex);
+    return estadoCalibracionBajoLock(numero, calibration);
+}
+
+HttpResponse responderObservacionCalibracion(
+    Camera& camera, std::mutex& cameraMutex,
+    CameraCalibration& calibration, std::mutex& calibrationMutex)
+{
+    const CalibrationCaptureResult result = capturarObservacionCalibracion(
+        camera, cameraMutex, calibration, calibrationMutex);
+
+    if (result.status == CalibrationCaptureStatus::CaptureFailed)
+        return HttpResponse::text("No se pudo capturar la imagen.", 500);
+
+    if (result.status == CalibrationCaptureStatus::SessionChanged)
+        return HttpResponse::text("La sesion cambio durante la captura.", 409);
+
+    if (result.observationStatus == ObservationStatus::ProcessingFailed)
+        return HttpResponse::text("No se pudo procesar el tablero.", 500);
+
+    if (result.annotatedImage.empty())
+        return HttpResponse::text("Imagen de calibracion invalida.", 400);
+
+    std::vector<unsigned char> png;
+    try
+    {
+        if (!cv::imencode(".png", result.annotatedImage, png))
+            return HttpResponse::text("No se pudo codificar la imagen.", 500);
+    }
+    catch (const cv::Exception&)
+    {
+        return HttpResponse::text("No se pudo codificar la imagen.", 500);
+    }
+
+    std::string body(reinterpret_cast<const char*>(png.data()), png.size());
+    return {200, "image/png", std::move(body),
+            {{"Cache-Control", "no-store"},
+             {"X-Observation-Status", nombreEstadoObservacion(result.observationStatus)},
+             {"X-Observation-Count", std::to_string(result.observationCount)},
+             {"X-Calibration-Revision", std::to_string(result.revision)}}};
+}
+
+enum class AccionCalibracion
+{
+    Undo,
+    Reset,
+    Calculate,
+    Save,
+    ClearSaved
+};
+
+HttpResponse responderAccionCalibracion(
+    int numero, CameraCalibration& calibration, std::mutex& calibrationMutex,
+    AccionCalibracion action)
+{
+    std::lock_guard<std::mutex> lock(calibrationMutex);
+
+    switch (action)
+    {
+    case AccionCalibracion::Undo:
+        if (!calibration.removeLastObservation())
+            return HttpResponse::text("No hay observaciones para deshacer.", 409);
+        break;
+
+    case AccionCalibracion::Reset:
+        calibration.clearObservations();
+        break;
+
+    case AccionCalibracion::Calculate:
+    {
+        const CalibrationStatus status = calibration.calibrate();
+        if (status == CalibrationStatus::NotEnoughObservations)
+            return HttpResponse::text("Se necesitan al menos 10 observaciones.", 409);
+        if (status != CalibrationStatus::Success)
+            return HttpResponse::text("Fallo el calculo de calibracion.", 500);
+        break;
+    }
+
+    case AccionCalibracion::Save:
+        if (!calibration.getPendingAnalysis())
+            return HttpResponse::text("No hay analisis pendiente para guardar.", 409);
+        if (!calibration.savePendingCalibration())
+            return HttpResponse::text("No se pudo guardar la calibracion.", 500);
+        break;
+
+    case AccionCalibracion::ClearSaved:
+        if (!calibration.clearCalibration())
+            return HttpResponse::text("No se pudo borrar la calibracion.", 500);
+        break;
+    }
+
+    return estadoCalibracionBajoLock(numero, calibration);
+}
+
 bool leerJpeg(Camera& camera, std::mutex& cameraMutex, std::vector<unsigned char>& jpeg)
 {
     cv::Mat frame;
@@ -557,6 +855,68 @@ void registrarConfiguracionUsb(HttpServer& server, int numero, CameraUsb& camera
     });
 }
 
+void registrarCalibracion(
+    HttpServer& server, int numero,
+    Camera& camera, std::mutex& cameraMutex,
+    CameraCalibration& calibration, std::mutex& calibrationMutex)
+{
+    const std::string base = "/calibration/" + std::to_string(numero);
+
+    server.get(base + "/status", [&calibration, &calibrationMutex, numero](const HttpRequest&)
+    {
+        return responderEstadoCalibracion(numero, calibration, calibrationMutex);
+    });
+
+    server.put(base + "/observe",
+               [&camera, &cameraMutex, &calibration, &calibrationMutex](const HttpRequest&)
+    {
+        return responderObservacionCalibracion(
+            camera, cameraMutex, calibration, calibrationMutex);
+    });
+
+    const auto registrarAccion = [&](const std::string& route, AccionCalibracion action)
+    {
+        server.put(base + route,
+                   [&calibration, &calibrationMutex, numero, action](const HttpRequest&)
+        {
+            return responderAccionCalibracion(
+                numero, calibration, calibrationMutex, action);
+        });
+    };
+
+    registrarAccion("/undo", AccionCalibracion::Undo);
+    registrarAccion("/reset", AccionCalibracion::Reset);
+    registrarAccion("/calculate", AccionCalibracion::Calculate);
+    registrarAccion("/save", AccionCalibracion::Save);
+    registrarAccion("/clear-saved", AccionCalibracion::ClearSaved);
+}
+
+void cargarCalibracionInicial(int numero, CameraCalibration& calibration,
+                              std::mutex& calibrationMutex)
+{
+    CalibrationLoadStatus status;
+    {
+        std::lock_guard<std::mutex> lock(calibrationMutex);
+        status = calibration.loadCalibration();
+    }
+
+    switch (status)
+    {
+    case CalibrationLoadStatus::Loaded:
+        std::cout << "[Calibration] Camara " << numero << ": calibracion cargada.\n";
+        break;
+    case CalibrationLoadStatus::NotFound:
+        std::cout << "[Calibration] Camara " << numero << ": sin calibracion guardada.\n";
+        break;
+    case CalibrationLoadStatus::InvalidFile:
+        std::cerr << "[Calibration] Camara " << numero << ": archivo invalido.\n";
+        break;
+    case CalibrationLoadStatus::ReadError:
+        std::cerr << "[Calibration] Camara " << numero << ": error de lectura.\n";
+        break;
+    }
+}
+
 int main()
 {
     UsbCameraConfig usbConfig;
@@ -585,6 +945,17 @@ int main()
         return 1;
     }
 
+    const fs::path calibrationDir =
+        fs::path(TELEPENDULO_PROJECT_ROOT) / "saves" / "calibrations";
+
+    CameraCalibration calibration1(1, calibrationDir);
+    CameraCalibration calibration2(2, calibrationDir);
+    std::mutex calibration1Mutex;
+    std::mutex calibration2Mutex;
+
+    cargarCalibracionInicial(1, calibration1, calibration1Mutex);
+    cargarCalibracionInicial(2, calibration2, calibration2Mutex);
+
     GpioLightingConfig lightingConfig;
     lightingConfig.chipPath = "/dev/gpiochip0";
     lightingConfig.offsets = {22, 27};
@@ -594,6 +965,7 @@ int main()
     HttpServer server(8080);                                    // Crear el server en el puerto 8080
     server.get("/", responderInicio);                           // Enlazar la ruta / con la página de inicio
     server.get("/config", responderConfiguracion);              // Enlazar la ruta /config con la página de configuración
+    server.get("/calibration", responderPaginaCalibracion);
     server.get("/lighting/1", [&lighting](const HttpRequest&)
                {
                    return responderEstadoLuz(lighting, 0);
@@ -636,6 +1008,11 @@ int main()
 
     registrarCamara(server, 1, *camera1.camera, camera1Mutex);
     registrarCamara(server, 2, *camera2.camera, camera2Mutex);
+
+    registrarCalibracion(server, 1, *camera1.camera, camera1Mutex,
+                         calibration1, calibration1Mutex);
+    registrarCalibracion(server, 2, *camera2.camera, camera2Mutex,
+                         calibration2, calibration2Mutex);
 
     if (camera1.usb)
         registrarConfiguracionUsb(server, 1, *camera1.usb, camera1Mutex);

@@ -9,6 +9,7 @@
 #include <opencv2/objdetect/charuco_detector.hpp>
 
 #include <cmath>
+#include <cstdint>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -74,7 +75,16 @@ bool isValidCalibrationResult(const MonocularCalibrationResult& result)
     const double fx = cameraMatrix64.at<double>(0, 0);
     const double fy = cameraMatrix64.at<double>(1, 1);
 
-    return fx > 0.0 && fy > 0.0;
+    // El modelo de calibración utilizado no estima skew; la última fila
+    // de la matriz intrínseca debe ser [0, 0, 1].
+    constexpr double structureTolerance = 1e-6;
+
+    return fx > 0.0 && fy > 0.0 &&
+           std::abs(cameraMatrix64.at<double>(0, 1)) <= structureTolerance &&
+           std::abs(cameraMatrix64.at<double>(1, 0)) <= structureTolerance &&
+           std::abs(cameraMatrix64.at<double>(2, 0)) <= structureTolerance &&
+           std::abs(cameraMatrix64.at<double>(2, 1)) <= structureTolerance &&
+           std::abs(cameraMatrix64.at<double>(2, 2) - 1.0) <= structureTolerance;
 }
 
 }
@@ -208,6 +218,7 @@ ObservationStatus CameraCalibration::addObservation(
             imageSize_ = image.size();
 
         observations_.push_back(std::move(observation));
+        invalidatePendingAnalysis();
 
         return ObservationStatus::Added;
     }
@@ -409,10 +420,10 @@ CalibrationTargetZone CameraCalibration::getRecommendedTargetZone() const
     return zones[bestIndex];
 }
 
-CalibrationStatus CameraCalibration::calibrate(CalibrationAnalysis& analysis) const
+CalibrationStatus CameraCalibration::calibrate()
 {
-    // Evitar que un fallo deje resultados anteriores visibles al llamador.
-    analysis = CalibrationAnalysis{};
+    // Un cálculo fallido no debe dejar disponible un análisis anterior.
+    pendingAnalysis_.reset();
 
     if (observations_.size() < MinimumObservations)
         return CalibrationStatus::NotEnoughObservations;
@@ -436,7 +447,9 @@ CalibrationStatus CameraCalibration::calibrate(CalibrationAnalysis& analysis) co
             charucoConfig_.markerSize,
             dictionary);
 
+        // Coordenadas físicas del tablero en milímetros
         std::vector<std::vector<cv::Point3f>> objectPoints;
+        // Coordenadas detectadas en la fotografía en píxeles
         std::vector<std::vector<cv::Point2f>> imagePoints;
 
         objectPoints.reserve(observations_.size());
@@ -453,6 +466,7 @@ CalibrationStatus CameraCalibration::calibrate(CalibrationAnalysis& analysis) co
             std::vector<cv::Point3f> viewObjectPoints;
             std::vector<cv::Point2f> viewImagePoints;
 
+            // Asocia los objectsPoints con los imagePoints
             board.matchImagePoints(
                 observation.corners,
                 observation.ids,
@@ -548,8 +562,9 @@ CalibrationStatus CameraCalibration::calibrate(CalibrationAnalysis& analysis) co
             calculatedAnalysis.perViewErrors.push_back(error);
         }
 
-        // calibrate() solo calcula y analiza. No activa ni persiste el resultado.
-        analysis = std::move(calculatedAnalysis);
+        // Mantener el análisis disponible hasta que cambien las observaciones.
+        // No activa ni persiste la calibración.
+        pendingAnalysis_ = std::move(calculatedAnalysis);
 
         return CalibrationStatus::Success;
     }
@@ -557,6 +572,27 @@ CalibrationStatus CameraCalibration::calibrate(CalibrationAnalysis& analysis) co
     {
         return CalibrationStatus::CalibrationFailed;
     }
+}
+
+const CalibrationAnalysis* CameraCalibration::getPendingAnalysis() const
+{
+    return pendingAnalysis_ ? &*pendingAnalysis_ : nullptr;
+}
+
+bool CameraCalibration::savePendingCalibration()
+{
+    return pendingAnalysis_ && saveCalibration(pendingAnalysis_->result);
+}
+
+std::uint64_t CameraCalibration::getRevision() const
+{
+    return revision_;
+}
+
+void CameraCalibration::invalidatePendingAnalysis()
+{
+    pendingAnalysis_.reset();
+    ++revision_;
 }
 
 const MonocularCalibrationResult* CameraCalibration::getCalibrationResult() const
@@ -677,14 +713,24 @@ bool CameraCalibration::setCharucoConfig(const CharucoConfig& config)
         return false;
     }
 
-    // Asegurarse de que el diccionario configurado sea uno de los esperados
-    switch (config.dictionary)
-    {
-    case CharucoDictionary::Dict5x5_100:
-    case CharucoDictionary::Dict6x6_250:
-        break;
+    cv::aruco::PredefinedDictionaryType dictionaryType;
+    if (!getOpenCvDictionaryType(config.dictionary, dictionaryType))
+        return false;
 
-    default:
+    // ChArUco coloca un marcador en cada casilla blanca del tablero.
+    // El producto se calcula en 64 bits para evitar overflow con valores de entrada grandes.
+    const std::int64_t squareCount =
+        static_cast<std::int64_t>(config.columns) * config.rows;
+    const std::int64_t requiredMarkers = squareCount / 2;
+
+    try
+    {
+        const auto dictionary = cv::aruco::getPredefinedDictionary(dictionaryType);
+        if (requiredMarkers > dictionary.bytesList.rows)
+            return false;
+    }
+    catch (const cv::Exception&)
+    {
         return false;
     }
 
@@ -790,6 +836,8 @@ void CameraCalibration::clearObservations()
 {
     observations_.clear();
     imageSize_ = {0, 0};
+    // Invalidar también capturas en curso, incluso si la sesión estaba vacía.
+    invalidatePendingAnalysis();
 }
 
 bool CameraCalibration::removeLastObservation()
@@ -806,5 +854,6 @@ bool CameraCalibration::removeLastObservation()
     if (observations_.empty())
         imageSize_ = {0, 0};
 
+    invalidatePendingAnalysis();
     return true;
 }

@@ -6,7 +6,8 @@
 
 #include <string>                                       // Uso de string
 #include <cstddef>                                      // Para función size
-#include <vector>                                       // Para los JPEG del stream
+#include <vector>
+#include <utility>                                       // Para los JPEG del stream
 
 struct HttpRequest
 {
@@ -22,6 +23,14 @@ struct HttpResponse
     int statusCode = 200;
     std::string contentType = "text/plain; charset=utf-8";
     std::string body;
+    // Cabeceras adicionales; nombres y valores deben ser seguros para HTTP.
+    std::vector<std::pair<std::string, std::string>> headers;
+
+    HttpResponse() = default;
+    HttpResponse(int status, std::string type, std::string responseBody,
+                 std::vector<std::pair<std::string, std::string>> extraHeaders = {})
+        : statusCode(status), contentType(std::move(type)),
+          body(std::move(responseBody)), headers(std::move(extraHeaders)) {}
 
     static HttpResponse html(std::string body, int statusCode = 200);
     static HttpResponse text(std::string body, int statusCode = 200);

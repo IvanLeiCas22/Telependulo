@@ -1,4 +1,5 @@
 #include "pages.h"
+#include "calibrationpage.h"
 
 namespace
 {
@@ -240,6 +241,7 @@ std::string crearPagina(
         <h2>Telepéndulo</h2>
 
         <a href="/">Camaras</a>
+        <a href="/calibration">Calibración</a>
         <a href="/config">Iluminación</a>
     </nav>
 
@@ -258,6 +260,11 @@ std::string crearPagina(
 )HTML";
 }
 
+}
+
+std::string paginaCalibracion()
+{
+    return crearPagina("Calibración monocular", contenidoPaginaCalibracion());
 }
 
 std::string paginaCamaras()

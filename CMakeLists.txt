@@ -29,6 +29,8 @@ add_executable(Telependulo
 
     web/pages.cpp
     web/pages.h
+    web/calibrationpage.cpp
+    web/calibrationpage.h
     calibration/cameracalibration.h calibration/cameracalibration.cpp
 )
 

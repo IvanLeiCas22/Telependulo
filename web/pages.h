@@ -4,6 +4,7 @@
 #include <string>
 
 std::string paginaCamaras();
+std::string paginaCalibracion();
 std::string paginaConfiguracion();
 
 #endif // PAGES_H
