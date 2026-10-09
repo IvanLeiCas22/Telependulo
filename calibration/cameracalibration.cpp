@@ -18,7 +18,7 @@
 namespace
 {
 
-constexpr double ObservationSimilarityThresholdFraction = 0.02;
+constexpr double ObservationSimilarityThresholdFraction = 0.01; // 1% de la diagonal de la imagen
 
 bool getOpenCvDictionaryType(
     CharucoDictionary dictionary,

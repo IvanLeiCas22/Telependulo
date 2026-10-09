@@ -1,5 +1,4 @@
 #include "camera/camera.h"
-#include "camera/cameraip.h"
 #include "camera/camerausb.h"
 #include "calibration/cameracalibration.h"
 #include "communication/httpserver.h"
@@ -792,25 +791,6 @@ bool crearSesionStreamCamara(Camera& camera, std::mutex& cameraMutex,
     return true;
 }
 
-struct CameraSetup
-{
-    std::unique_ptr<Camera> camera;
-    CameraUsb* usb = nullptr;
-};
-
-CameraSetup crearCamaraUsb(const UsbCameraConfig& config)
-{
-    auto camera = std::make_unique<CameraUsb>(config);
-    CameraUsb* usb = camera.get();
-
-    return {std::move(camera), usb};
-}
-
-CameraSetup crearCamaraIp(const IpCameraConfig& config)
-{
-    return {std::make_unique<CameraIp>(config), nullptr};
-}
-
 void registrarCamara(HttpServer& server, int numero, Camera& camera, std::mutex& cameraMutex)
 {
     const std::string id = std::to_string(numero);
@@ -925,12 +905,12 @@ int main()
     usbConfig.height = 1080;
     usbConfig.fps = 5;
     usbConfig.fourcc = cv::VideoWriter::fourcc('Y', 'U', 'Y', 'V');
-    CameraSetup camera1 = crearCamaraUsb(usbConfig);
+    CameraUsb camera1(usbConfig);
     std::mutex camera1Mutex;
 
     UsbCameraConfig usbConfig2 = usbConfig;
     usbConfig2.deviceIndex = 2;
-    CameraSetup camera2 = crearCamaraUsb(usbConfig2);
+    CameraUsb camera2(usbConfig2);
     std::mutex camera2Mutex;
 
     namespace fs = std::filesystem;
@@ -1006,19 +986,16 @@ int main()
                    return responderTodasLasLuces(lighting, false);
                });
 
-    registrarCamara(server, 1, *camera1.camera, camera1Mutex);
-    registrarCamara(server, 2, *camera2.camera, camera2Mutex);
+    registrarCamara(server, 1, camera1, camera1Mutex);
+    registrarCamara(server, 2, camera2, camera2Mutex);
 
-    registrarCalibracion(server, 1, *camera1.camera, camera1Mutex,
+    registrarCalibracion(server, 1, camera1, camera1Mutex,
                          calibration1, calibration1Mutex);
-    registrarCalibracion(server, 2, *camera2.camera, camera2Mutex,
+    registrarCalibracion(server, 2, camera2, camera2Mutex,
                          calibration2, calibration2Mutex);
 
-    if (camera1.usb)
-        registrarConfiguracionUsb(server, 1, *camera1.usb, camera1Mutex);
-
-    if (camera2.usb)
-        registrarConfiguracionUsb(server, 2, *camera2.usb, camera2Mutex);
+    registrarConfiguracionUsb(server, 1, camera1, camera1Mutex);
+    registrarConfiguracionUsb(server, 2, camera2, camera2Mutex);
 
     if (!server.run())                                          // Arrancar el server
     {
